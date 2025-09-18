@@ -25,7 +25,8 @@ class AttendanceMapWidget extends StatefulWidget {
 
 class _AttendanceMapWidgetState extends State<AttendanceMapWidget> {
   GoogleMapController? _mapController;
-  LatLng _currentPosition = LatLng(-6.200000, 106.816666); // Default to Jakarta
+  LatLng _currentPosition = LatLng(LocationHelperLokin.defaultLatitude,
+      LocationHelperLokin.defaultLongitude);
   String _currentAddress = "Mendapatkan lokasi...";
   Marker? _marker;
   bool _isLoading = true;
@@ -45,15 +46,23 @@ class _AttendanceMapWidgetState extends State<AttendanceMapWidget> {
 
   Future<void> _initializeLocation() async {
     try {
+      // Set default Jakarta position first
+      _currentPosition = LatLng(LocationHelperLokin.defaultLatitude,
+          LocationHelperLokin.defaultLongitude);
+
       if (widget.initialLat != null && widget.initialLng != null) {
         _currentPosition = LatLng(widget.initialLat!, widget.initialLng!);
         await _updateLocationInfo();
       } else if (widget.showCurrentLocation) {
+        // Try to get current location, but keep Jakarta as fallback
         await _getCurrentLocation();
+      } else {
+        // Use Jakarta default and get address
+        await _updateLocationInfo();
       }
     } catch (e) {
       setState(() {
-        _currentAddress = "Gagal mendapatkan lokasi";
+        _currentAddress = "Gagal mendapatkan lokasi: ${e.toString()}";
         _isLoading = false;
       });
     }
@@ -75,10 +84,15 @@ class _AttendanceMapWidgetState extends State<AttendanceMapWidget> {
               await LocationHelperLokin.requestLocationPermission();
           if (permission != LocationPermission.whileInUse &&
               permission != LocationPermission.always) {
-            throw Exception('Izin lokasi diperlukan untuk absensi');
+            // Keep Jakarta default if permission denied
+            print('Location permission denied, using Jakarta default');
+            await _updateLocationInfo();
+            return;
           }
         } else {
-          throw Exception('Layanan lokasi tidak tersedia');
+          print('Location service not available, using Jakarta default');
+          await _updateLocationInfo();
+          return;
         }
       }
 
@@ -92,11 +106,14 @@ class _AttendanceMapWidgetState extends State<AttendanceMapWidget> {
 
       await _updateLocationInfo();
     } catch (e) {
+      print('Error getting current location: $e');
+      // Fallback to Jakarta default
       setState(() {
-        _currentAddress = "Gagal mendapatkan lokasi: ${e.toString()}";
+        _currentAddress = "Menggunakan lokasi default Jakarta";
         _isLoading = false;
         _hasLocationPermission = false;
       });
+      await _updateLocationInfo();
     }
   }
 
@@ -146,14 +163,12 @@ class _AttendanceMapWidgetState extends State<AttendanceMapWidget> {
   void _onMapCreated(GoogleMapController controller) {
     _mapController = controller;
 
-    // Move to current position if available
-    if (!_isLoading) {
-      _mapController?.animateCamera(
-        CameraUpdate.newCameraPosition(
-          CameraPosition(target: _currentPosition, zoom: 16),
-        ),
-      );
-    }
+    // Move to current position (Jakarta by default)
+    _mapController?.animateCamera(
+      CameraUpdate.newCameraPosition(
+        CameraPosition(target: _currentPosition, zoom: 16),
+      ),
+    );
   }
 
   void _onMapTap(LatLng position) {
@@ -180,7 +195,7 @@ class _AttendanceMapWidgetState extends State<AttendanceMapWidget> {
             GoogleMap(
               initialCameraPosition: CameraPosition(
                 target: _currentPosition,
-                zoom: 12,
+                zoom: 16,
               ),
               onMapCreated: _onMapCreated,
               onTap: _onMapTap,
@@ -366,24 +381,81 @@ class _AttendanceLocationSelectorState
   double? _selectedLng;
   String? _selectedAddress;
   bool _locationSelected = false;
+  bool _isConfirming = false;
+
+  @override
+  void initState() {
+    super.initState();
+    // Set default to Jakarta immediately
+    _selectedLat = LocationHelperLokin.defaultLatitude;
+    _selectedLng = LocationHelperLokin.defaultLongitude;
+    _selectedAddress = "Jakarta, Indonesia (Default)";
+    _locationSelected = true;
+  }
 
   void _onLocationSelected(double lat, double lng, String address) {
-    setState(() {
-      _selectedLat = lat;
-      _selectedLng = lng;
-      _selectedAddress = address;
-      _locationSelected = true;
-    });
+    print('Location selected: $lat, $lng, $address'); // Debug print
+    if (mounted) {
+      setState(() {
+        _selectedLat = lat;
+        _selectedLng = lng;
+        _selectedAddress = address;
+        _locationSelected = true;
+      });
+    }
   }
 
   void _confirmLocation() {
-    if (_locationSelected &&
-        _selectedLat != null &&
-        _selectedLng != null &&
-        _selectedAddress != null) {
+    print('Confirm location called'); // Debug print
+    print(
+        'Selected: $_selectedLat, $_selectedLng, $_selectedAddress'); // Debug print
+
+    if (!_locationSelected ||
+        _selectedLat == null ||
+        _selectedLng == null ||
+        _selectedAddress == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text(
+              'Lokasi belum dipilih. Silakan pilih lokasi terlebih dahulu.'),
+          backgroundColor: AppColorsLokin.error,
+        ),
+      );
+      return;
+    }
+
+    if (_isConfirming) return; // Prevent double tap
+
+    setState(() {
+      _isConfirming = true;
+    });
+
+    // Call the callback immediately
+    try {
       widget.onLocationConfirmed(
           _selectedLat!, _selectedLng!, _selectedAddress!);
-      Navigator.of(context).pop();
+      print('Callback called successfully'); // Debug print
+
+      // Close the dialog with slight delay to show user feedback
+      Future.delayed(const Duration(milliseconds: 300), () {
+        if (mounted) {
+          Navigator.of(context).pop();
+        }
+      });
+    } catch (e) {
+      print('Error in callback: $e'); // Debug print
+      if (mounted) {
+        setState(() {
+          _isConfirming = false;
+        });
+
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Terjadi kesalahan: $e'),
+            backgroundColor: AppColorsLokin.error,
+          ),
+        );
+      }
     }
   }
 
@@ -392,9 +464,20 @@ class _AttendanceLocationSelectorState
     return Scaffold(
       backgroundColor: Colors.white,
       appBar: AppBar(
-        title: Text(widget.title),
+        title: Text(
+          widget.title,
+          style: const TextStyle(
+            fontSize: 18,
+            fontWeight: FontWeight.w600,
+          ),
+        ),
         backgroundColor: AppColorsLokin.primary,
         foregroundColor: Colors.white,
+        elevation: 0,
+        leading: IconButton(
+          icon: const Icon(Icons.arrow_back),
+          onPressed: () => Navigator.of(context).pop(),
+        ),
       ),
       body: Column(
         children: [
@@ -402,7 +485,14 @@ class _AttendanceLocationSelectorState
           Container(
             width: double.infinity,
             padding: const EdgeInsets.all(16),
-            color: AppColorsLokin.primary.withOpacity(0.1),
+            decoration: BoxDecoration(
+              color: AppColorsLokin.primary.withOpacity(0.1),
+              border: Border(
+                bottom: BorderSide(
+                  color: AppColorsLokin.border.withOpacity(0.3),
+                ),
+              ),
+            ),
             child: Column(
               children: [
                 Text(
@@ -414,13 +504,40 @@ class _AttendanceLocationSelectorState
                 ),
                 if (_selectedAddress != null) ...[
                   const SizedBox(height: 8),
-                  Text(
-                    'Lokasi: $_selectedAddress',
-                    style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                  Container(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 12,
+                      vertical: 8,
+                    ),
+                    decoration: BoxDecoration(
+                      color: AppColorsLokin.primary.withOpacity(0.1),
+                      borderRadius: BorderRadius.circular(8),
+                      border: Border.all(
+                        color: AppColorsLokin.primary.withOpacity(0.3),
+                      ),
+                    ),
+                    child: Row(
+                      children: [
+                        const Icon(
+                          Icons.location_on,
                           color: AppColorsLokin.primary,
-                          fontWeight: FontWeight.w500,
+                          size: 16,
                         ),
-                    textAlign: TextAlign.center,
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: Text(
+                            'Lokasi: $_selectedAddress',
+                            style:
+                                Theme.of(context).textTheme.bodySmall?.copyWith(
+                                      color: AppColorsLokin.primary,
+                                      fontWeight: FontWeight.w500,
+                                    ),
+                            maxLines: 2,
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                        ),
+                      ],
+                    ),
                   ),
                 ],
               ],
@@ -434,32 +551,133 @@ class _AttendanceLocationSelectorState
               child: AttendanceMapWidget(
                 onLocationSelected: _onLocationSelected,
                 showCurrentLocation: true,
+                initialLat: LocationHelperLokin.defaultLatitude,
+                initialLng: LocationHelperLokin.defaultLongitude,
               ),
             ),
           ),
 
-          // Confirm button
-          Padding(
+          // Bottom section with coordinates and button
+          Container(
             padding: const EdgeInsets.all(16),
-            child: SizedBox(
-              width: double.infinity,
-              child: ElevatedButton(
-                onPressed: _locationSelected ? _confirmLocation : null,
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: AppColorsLokin.primary,
-                  padding: const EdgeInsets.symmetric(vertical: 16),
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(12),
-                  ),
-                ),
-                child: Text(
-                  'Konfirmasi Lokasi',
-                  style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                        color: Colors.white,
-                        fontWeight: FontWeight.w600,
-                      ),
+            decoration: BoxDecoration(
+              color: Colors.white,
+              border: Border(
+                top: BorderSide(
+                  color: AppColorsLokin.border.withOpacity(0.3),
                 ),
               ),
+              boxShadow: [
+                BoxShadow(
+                  color: Colors.black.withOpacity(0.05),
+                  blurRadius: 10,
+                  offset: const Offset(0, -2),
+                ),
+              ],
+            ),
+            child: Column(
+              children: [
+                // Coordinates display
+                if (_selectedLat != null && _selectedLng != null)
+                  Container(
+                    width: double.infinity,
+                    padding: const EdgeInsets.all(12),
+                    margin: const EdgeInsets.only(bottom: 16),
+                    decoration: BoxDecoration(
+                      color: AppColorsLokin.background,
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          'Koordinat Lokasi:',
+                          style:
+                              Theme.of(context).textTheme.bodySmall?.copyWith(
+                                    color: AppColorsLokin.textSecondary,
+                                    fontWeight: FontWeight.w500,
+                                  ),
+                        ),
+                        const SizedBox(height: 4),
+                        Text(
+                          'Lat: ${_selectedLat!.toStringAsFixed(6)}\nLng: ${_selectedLng!.toStringAsFixed(6)}',
+                          style:
+                              Theme.of(context).textTheme.bodySmall?.copyWith(
+                                    color: AppColorsLokin.textPrimary,
+                                    fontFamily: 'Courier',
+                                  ),
+                        ),
+                      ],
+                    ),
+                  ),
+
+                // Confirm button
+                SizedBox(
+                  width: double.infinity,
+                  child: _isConfirming
+                      ? Container(
+                          height: 56,
+                          decoration: BoxDecoration(
+                            color: AppColorsLokin.success,
+                            borderRadius: BorderRadius.circular(12),
+                          ),
+                          child: const Center(
+                            child: Row(
+                              mainAxisAlignment: MainAxisAlignment.center,
+                              children: [
+                                SizedBox(
+                                  width: 20,
+                                  height: 20,
+                                  child: CircularProgressIndicator(
+                                    valueColor: AlwaysStoppedAnimation<Color>(
+                                        Colors.white),
+                                    strokeWidth: 2,
+                                  ),
+                                ),
+                                SizedBox(width: 12),
+                                Text(
+                                  'Mengkonfirmasi...',
+                                  style: TextStyle(
+                                    color: Colors.white,
+                                    fontSize: 16,
+                                    fontWeight: FontWeight.w600,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        )
+                      : ElevatedButton(
+                          onPressed:
+                              _locationSelected ? _confirmLocation : null,
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: _locationSelected
+                                ? AppColorsLokin.primary
+                                : AppColorsLokin.textSecondary.withOpacity(0.5),
+                            foregroundColor: Colors.white,
+                            padding: const EdgeInsets.symmetric(vertical: 16),
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(12),
+                            ),
+                            elevation: 2,
+                          ),
+                          child: const Row(
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            children: [
+                              Icon(Icons.check_circle, size: 20),
+                              SizedBox(width: 8),
+                              Text(
+                                'Konfirmasi Lokasi',
+                                style: TextStyle(
+                                  fontSize: 16,
+                                  fontWeight: FontWeight.w600,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                ),
+              ],
             ),
           ),
         ],

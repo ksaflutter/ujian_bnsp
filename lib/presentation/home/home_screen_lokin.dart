@@ -3,7 +3,6 @@ import 'package:flutter/material.dart';
 import '../../core/constants/app_colors_lokin.dart';
 import '../../core/utils/date_helper_lokin.dart';
 import '../../core/widgets/custom_button_lokin.dart';
-import '../../core/widgets/loading_widget_lokin.dart';
 import '../../data/models/attendance_model_lokin.dart';
 import '../../data/models/stats_model_lokin.dart';
 import '../../data/models/user_model_lokin.dart';
@@ -28,7 +27,6 @@ class _HomeScreenState extends State<HomeScreen>
   AttendanceModelLokin? _todayAttendance;
   StatsModel? _stats;
   bool _isLoading = false;
-  final bool _isLocationLoading = false;
 
   @override
   bool get wantKeepAlive => true;
@@ -85,7 +83,7 @@ class _HomeScreenState extends State<HomeScreen>
 
   Future<void> _handleAttendanceWithMap({required bool isCheckIn}) async {
     try {
-      // Show map selection dialog
+      // Show map selection dialog with Jakarta default
       await showDialog(
         context: context,
         barrierDismissible: false,
@@ -93,8 +91,11 @@ class _HomeScreenState extends State<HomeScreen>
           title: isCheckIn
               ? 'Pilih Lokasi Absen Masuk'
               : 'Pilih Lokasi Absen Keluar',
-          subtitle: 'Pastikan lokasi sudah sesuai dengan tempat kerja Anda',
+          subtitle:
+              'Pastikan lokasi sudah sesuai dengan tempat kerja Anda\n(Default: Jakarta, Indonesia)',
           onLocationConfirmed: (lat, lng, address) async {
+            // This callback will be called when user confirms location
+            print('Location confirmed: $lat, $lng, $address'); // Debug print
             await _processAttendance(
               isCheckIn: isCheckIn,
               latitude: lat,
@@ -105,6 +106,7 @@ class _HomeScreenState extends State<HomeScreen>
         ),
       );
     } catch (e) {
+      print('Error in _handleAttendanceWithMap: $e'); // Debug print
       _showErrorSnackBar('Terjadi kesalahan: $e');
     }
   }
@@ -115,6 +117,10 @@ class _HomeScreenState extends State<HomeScreen>
     required double longitude,
     required String address,
   }) async {
+    print('Processing attendance: isCheckIn=$isCheckIn'); // Debug print
+
+    if (!mounted) return;
+
     setState(() {
       _isLoading = true;
     });
@@ -134,6 +140,8 @@ class _HomeScreenState extends State<HomeScreen>
         return;
       }
 
+      print('Calling API...'); // Debug print
+
       // Call API
       final result = isCheckIn
           ? await _attendanceRepository.checkIn(
@@ -147,6 +155,9 @@ class _HomeScreenState extends State<HomeScreen>
               address: address,
             );
 
+      print(
+          'API result: ${result.isSuccess}, ${result.message}'); // Debug print
+
       if (mounted) {
         setState(() {
           _isLoading = false;
@@ -154,13 +165,14 @@ class _HomeScreenState extends State<HomeScreen>
 
         if (result.isSuccess) {
           _showSuccessDialog(result.message);
-          await _loadTodayAttendance();
-          await _loadStats();
+          // Refresh data after successful attendance
+          await Future.wait([_loadTodayAttendance(), _loadStats()]);
         } else {
           _showErrorSnackBar(result.message);
         }
       }
     } catch (e) {
+      print('Error in _processAttendance: $e'); // Debug print
       if (mounted) {
         setState(() {
           _isLoading = false;
@@ -215,7 +227,6 @@ class _HomeScreenState extends State<HomeScreen>
         content: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            // TODO: Add Lottie animation here
             Container(
               width: 80,
               height: 80,
@@ -252,12 +263,15 @@ class _HomeScreenState extends State<HomeScreen>
   }
 
   void _showErrorSnackBar(String message) {
+    if (!mounted) return;
+
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
         content: Text(message),
         backgroundColor: AppColorsLokin.error,
         behavior: SnackBarBehavior.floating,
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+        duration: const Duration(seconds: 4),
       ),
     );
   }
@@ -477,7 +491,38 @@ class _HomeScreenState extends State<HomeScreen>
               SizedBox(
                 width: double.infinity,
                 child: _isLoading
-                    ? const LoadingWidgetLokin()
+                    ? Container(
+                        height: 56,
+                        decoration: BoxDecoration(
+                          color: AppColorsLokin.success.withOpacity(0.7),
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                        child: const Center(
+                          child: Row(
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            children: [
+                              SizedBox(
+                                width: 20,
+                                height: 20,
+                                child: CircularProgressIndicator(
+                                  valueColor: AlwaysStoppedAnimation<Color>(
+                                      Colors.white),
+                                  strokeWidth: 2,
+                                ),
+                              ),
+                              SizedBox(width: 12),
+                              Text(
+                                'Memproses Absensi...',
+                                style: TextStyle(
+                                  color: Colors.white,
+                                  fontSize: 16,
+                                  fontWeight: FontWeight.w600,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      )
                     : CustomButton(
                         text: 'Absen Masuk',
                         onPressed: _handleCheckIn,
@@ -492,7 +537,38 @@ class _HomeScreenState extends State<HomeScreen>
               SizedBox(
                 width: double.infinity,
                 child: _isLoading
-                    ? const LoadingWidgetLokin()
+                    ? Container(
+                        height: 56,
+                        decoration: BoxDecoration(
+                          color: AppColorsLokin.error.withOpacity(0.7),
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                        child: const Center(
+                          child: Row(
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            children: [
+                              SizedBox(
+                                width: 20,
+                                height: 20,
+                                child: CircularProgressIndicator(
+                                  valueColor: AlwaysStoppedAnimation<Color>(
+                                      Colors.white),
+                                  strokeWidth: 2,
+                                ),
+                              ),
+                              SizedBox(width: 12),
+                              Text(
+                                'Memproses Absensi...',
+                                style: TextStyle(
+                                  color: Colors.white,
+                                  fontSize: 16,
+                                  fontWeight: FontWeight.w600,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      )
                     : CustomButton(
                         text: 'Absen Keluar',
                         onPressed: _handleCheckOut,

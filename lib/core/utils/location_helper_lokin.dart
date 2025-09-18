@@ -9,6 +9,22 @@ class LocationHelperLokin {
   static const double defaultLongitude = 106.8456;
   static const double locationAccuracy = 100.0; // meters
 
+  // Get default position (Jakarta)
+  static Position getDefaultPosition() {
+    return Position(
+      latitude: defaultLatitude,
+      longitude: defaultLongitude,
+      timestamp: DateTime.now(),
+      accuracy: locationAccuracy,
+      altitude: 0,
+      heading: 0,
+      speed: 0,
+      speedAccuracy: 0,
+      altitudeAccuracy: 0,
+      headingAccuracy: 0,
+    );
+  }
+
   // Check if location services are enabled
   static Future<bool> isLocationServiceEnabled() async {
     return await Geolocator.isLocationServiceEnabled();
@@ -30,51 +46,63 @@ class LocationHelperLokin {
     return permission;
   }
 
-  // Get current position with error handling
+  // Get current position with error handling and Jakarta fallback
   static Future<Position> getCurrentPosition() async {
-    // Check if location services are enabled
-    bool serviceEnabled = await isLocationServiceEnabled();
-    if (!serviceEnabled) {
-      throw LocationServiceDisabledException();
-    }
-
-    // Check and request permission
-    LocationPermission permission = await checkLocationPermission();
-    if (permission == LocationPermission.denied) {
-      permission = await requestLocationPermission();
-      if (permission == LocationPermission.denied) {
-        throw PermissionDeniedException('Location permission denied');
-      }
-    }
-
-    if (permission == LocationPermission.deniedForever) {
-      throw PermissionDeniedException('Location permission permanently denied');
-    }
-
-    // Get current position
     try {
-      Position position = await Geolocator.getCurrentPosition(
-        desiredAccuracy: LocationAccuracy.high,
-        timeLimit: const Duration(seconds: 10),
-      );
-      return position;
-    } catch (e) {
-      // If high accuracy fails, try with medium accuracy
+      // Check if location services are enabled
+      bool serviceEnabled = await isLocationServiceEnabled();
+      if (!serviceEnabled) {
+        print('Location service disabled, using Jakarta default');
+        return getDefaultPosition();
+      }
+
+      // Check and request permission
+      LocationPermission permission = await checkLocationPermission();
+      if (permission == LocationPermission.denied) {
+        permission = await requestLocationPermission();
+        if (permission == LocationPermission.denied) {
+          print('Location permission denied, using Jakarta default');
+          return getDefaultPosition();
+        }
+      }
+
+      if (permission == LocationPermission.deniedForever) {
+        print('Location permission permanently denied, using Jakarta default');
+        return getDefaultPosition();
+      }
+
+      // Get current position with timeout
       try {
         Position position = await Geolocator.getCurrentPosition(
-          desiredAccuracy: LocationAccuracy.medium,
-          timeLimit: const Duration(seconds: 15),
+          desiredAccuracy: LocationAccuracy.high,
+          timeLimit: const Duration(seconds: 10),
         );
+        print(
+            'Got current location: ${position.latitude}, ${position.longitude}');
         return position;
       } catch (e) {
-        throw LocationException(
-          'Failed to get current location: ${e.toString()}',
-        );
+        print('High accuracy failed, trying medium accuracy: $e');
+        // If high accuracy fails, try with medium accuracy
+        try {
+          Position position = await Geolocator.getCurrentPosition(
+            desiredAccuracy: LocationAccuracy.medium,
+            timeLimit: const Duration(seconds: 15),
+          );
+          print(
+              'Got current location with medium accuracy: ${position.latitude}, ${position.longitude}');
+          return position;
+        } catch (e) {
+          print('Medium accuracy failed, using Jakarta default: $e');
+          return getDefaultPosition();
+        }
       }
+    } catch (e) {
+      print('Error getting current location, using Jakarta default: $e');
+      return getDefaultPosition();
     }
   }
 
-  // Get address from coordinates
+  // Get address from coordinates with Jakarta fallback
   static Future<String> getAddressFromCoordinates(
     double latitude,
     double longitude,
@@ -104,15 +132,40 @@ class LocationHelperLokin {
           addressParts.add(place.administrativeArea!);
         }
 
-        return addressParts.isNotEmpty
+        String address = addressParts.isNotEmpty
             ? addressParts.join(', ')
             : 'Unknown Location';
+
+        // Check if we're using Jakarta default coordinates
+        if (_isJakartaDefault(latitude, longitude)) {
+          return 'Jakarta, Indonesia (Default Location)';
+        }
+
+        return address;
+      }
+
+      // Check if we're using Jakarta default coordinates
+      if (_isJakartaDefault(latitude, longitude)) {
+        return 'Jakarta, Indonesia (Default Location)';
       }
 
       return 'Unknown Location';
     } catch (e) {
+      print('Error getting address: $e');
+      // Check if we're using Jakarta default coordinates
+      if (_isJakartaDefault(latitude, longitude)) {
+        return 'Jakarta, Indonesia (Default Location)';
+      }
       return 'Failed to get address';
     }
+  }
+
+  // Helper method to check if coordinates are Jakarta default
+  static bool _isJakartaDefault(double latitude, double longitude) {
+    const double tolerance =
+        0.001; // Small tolerance for floating point comparison
+    return (latitude - defaultLatitude).abs() < tolerance &&
+        (longitude - defaultLongitude).abs() < tolerance;
   }
 
   // Get coordinates from address
@@ -279,25 +332,36 @@ class LocationHelperLokin {
     };
   }
 
-  // Get last known position
+  // Get last known position with Jakarta fallback
   static Future<Position?> getLastKnownPosition() async {
     try {
-      return await Geolocator.getLastKnownPosition();
+      Position? lastKnown = await Geolocator.getLastKnownPosition();
+      if (lastKnown != null) {
+        print(
+            'Got last known position: ${lastKnown.latitude}, ${lastKnown.longitude}');
+        return lastKnown;
+      } else {
+        print('No last known position, using Jakarta default');
+        return getDefaultPosition();
+      }
     } catch (e) {
-      return null;
+      print('Error getting last known position, using Jakarta default: $e');
+      return getDefaultPosition();
     }
   }
 
-  // Get position with fallback to last known
+  // Get position with fallback to last known, then Jakarta default
   static Future<Position> getPositionWithFallback() async {
     try {
       return await getCurrentPosition();
     } catch (e) {
+      print('getCurrentPosition failed: $e');
       Position? lastKnown = await getLastKnownPosition();
       if (lastKnown != null) {
         return lastKnown;
       }
-      rethrow;
+      print('Using Jakarta default as final fallback');
+      return getDefaultPosition();
     }
   }
 }
