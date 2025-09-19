@@ -67,29 +67,69 @@ class AttendanceRepository {
     }
   }
 
-  /// Submit permission/izin
+  /// Submit permission/izin - PERBAIKAN: Menambahkan logging dan validation
   Future<AttendanceResult> submitPermission({
     required String date,
     required String reason,
   }) async {
     try {
+      print('=== ATTENDANCE REPOSITORY: submitPermission ===');
+      print('Date parameter: $date');
+      print('Reason parameter: $reason');
+
+      // Validate parameters before sending to API
+      if (date.isEmpty) {
+        print('ERROR: Date is empty');
+        return AttendanceResult.failure(
+          message: 'Tanggal wajib diisi',
+        );
+      }
+
+      if (reason.isEmpty) {
+        print('ERROR: Reason is empty');
+        return AttendanceResult.failure(
+          message: 'Alasan wajib diisi',
+        );
+      }
+
+      // Validate date format (should be yyyy-MM-dd)
+      try {
+        DateTime.parse(date);
+      } catch (e) {
+        print('ERROR: Invalid date format: $date');
+        return AttendanceResult.failure(
+          message: 'Format tanggal tidak valid',
+        );
+      }
+
+      print('Calling API service submitPermission...');
       final response = await _apiService.submitPermission(
         date: date,
         reason: reason,
       );
 
-      if (response['data'] != null) {
-        return AttendanceResult.success(
-          message: response['message'] ?? 'Izin berhasil diajukan',
-          data: response['data'],
-        );
-      } else {
-        return AttendanceResult.failure(
-          message: response['message'] ?? 'Pengajuan izin gagal',
-        );
+      print('API response received: $response');
+
+      if (response['message'] != null) {
+        // Check if response indicates success
+        final message = response['message'].toString().toLowerCase();
+        if (message.contains('berhasil') || message.contains('success')) {
+          return AttendanceResult.success(
+            message: response['message'] ?? 'Izin berhasil diajukan',
+            data: response['data'],
+          );
+        }
       }
+
+      // Handle error response
+      return AttendanceResult.failure(
+        message: response['message'] ?? 'Pengajuan izin gagal',
+      );
     } catch (e) {
-      return AttendanceResult.failure(message: e.toString());
+      print('ERROR in submitPermission: $e');
+      return AttendanceResult.failure(
+        message: 'Terjadi kesalahan: ${e.toString()}',
+      );
     }
   }
 
@@ -164,7 +204,7 @@ class AttendanceRepository {
     }
   }
 
-  /// Delete attendance
+  /// Delete attendance record
   Future<AttendanceResult> deleteAttendance(int id) async {
     try {
       final response = await _apiService.deleteAttendance(id);
@@ -178,46 +218,18 @@ class AttendanceRepository {
     }
   }
 
-  /// Get monthly statistics - PERBAIKAN: Gunakan formatDateForApi()
-  Future<StatsResult> getMonthlyStats(int year, int month) async {
-    final startDate =
-        DateHelperLokin.formatDateForApi(DateTime(year, month, 1));
-    final endDate =
-        DateHelperLokin.formatDateForApi(DateTime(year, month + 1, 0));
-
-    return getStats(start: startDate, end: endDate);
-  }
-
-  /// Get yearly statistics - PERBAIKAN: Gunakan formatDateForApi()
-  Future<StatsResult> getYearlyStats(int year) async {
-    final startDate = DateHelperLokin.formatDateForApi(DateTime(year, 1, 1));
-    final endDate = DateHelperLokin.formatDateForApi(DateTime(year, 12, 31));
-
-    return getStats(start: startDate, end: endDate);
-  }
-
-  /// Get weekly statistics - PERBAIKAN: Gunakan formatDateForApi()
-  Future<StatsResult> getWeeklyStats(DateTime weekStart) async {
-    final endDate = weekStart.add(const Duration(days: 6));
-    final startDate = DateHelperLokin.formatDateForApi(weekStart);
-    final endDateFormatted = DateHelperLokin.formatDateForApi(endDate);
-
-    return getStats(start: startDate, end: endDateFormatted);
-  }
-
   /// Check if user can check in today
   Future<bool> canCheckInToday() async {
     try {
       final result = await getTodayAttendance();
       if (result.isSuccess && result.attendance != null) {
-        // If attendance exists and has check_in_time, user cannot check in again
-        return result.attendance!.checkInTime == null;
+        final attendance = result.attendance!;
+        // Can check in if no attendance record or not checked in yet
+        return attendance.checkInTime == null;
       }
-      // If no attendance record, user can check in
-      return true;
+      return true; // Allow check-in if no record found
     } catch (e) {
-      // On error, assume user can check in
-      return true;
+      return true; // Allow check-in on error (fail-safe)
     }
   }
 

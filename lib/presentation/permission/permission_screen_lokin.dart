@@ -69,7 +69,20 @@ class _PermissionScreenState extends State<PermissionScreen>
   }
 
   Future<void> _submitPermission() async {
-    if (!_formKey.currentState!.validate()) return;
+    print('=== SUBMIT PERMISSION START ===');
+
+    if (!_formKey.currentState!.validate()) {
+      print('Form validation failed');
+      return;
+    }
+
+    // Validate selected date
+    final dateValidationError =
+        ValidationHelperLokin.validateDate(_selectedDate);
+    if (dateValidationError != null) {
+      _showErrorSnackBar(dateValidationError);
+      return;
+    }
 
     // Check if custom reason is selected but empty
     if (_selectedReason == 'Lainnya' && _reasonController.text.trim().isEmpty) {
@@ -86,10 +99,38 @@ class _PermissionScreenState extends State<PermissionScreen>
           ? _reasonController.text.trim()
           : _selectedReason;
 
-      final result = await _attendanceRepository.submitPermission(
-        date: DateHelperLokin.formatDate(_selectedDate),
+      // PERBAIKAN: Format tanggal untuk API (yyyy-MM-dd)
+      final formattedDate = DateHelperLokin.formatDateForApi(_selectedDate);
+
+      print('Selected date: $_selectedDate');
+      print('Formatted date for API: $formattedDate');
+      print('Reason: $reason');
+
+      // Validate parameters before sending
+      final validationErrors = ValidationHelperLokin.validatePermissionParams(
+        date: formattedDate,
         reason: reason,
       );
+
+      if (validationErrors.isNotEmpty) {
+        final errorMessage = validationErrors.values.first;
+        print('Validation error: $errorMessage');
+        _showErrorSnackBar(errorMessage!);
+        setState(() {
+          _isLoading = false;
+        });
+        return;
+      }
+
+      print('Calling API with date: $formattedDate, reason: $reason');
+
+      final result = await _attendanceRepository.submitPermission(
+        date: formattedDate,
+        reason: reason,
+      );
+
+      print('API result - success: ${result.isSuccess}');
+      print('API result - message: ${result.message}');
 
       if (mounted) {
         setState(() {
@@ -104,6 +145,7 @@ class _PermissionScreenState extends State<PermissionScreen>
         }
       }
     } catch (e) {
+      print('Exception in _submitPermission: $e');
       if (mounted) {
         setState(() {
           _isLoading = false;
@@ -124,25 +166,22 @@ class _PermissionScreenState extends State<PermissionScreen>
   void _showSuccessDialog(String message) {
     showDialog(
       context: context,
-      barrierDismissible: false,
       builder: (context) => AlertDialog(
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(16),
+        ),
         content: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            // TODO: Add Lottie animation here
-            Container(
-              width: 80,
-              height: 80,
-              decoration: const BoxDecoration(
-                color: AppColorsLokin.success,
-                shape: BoxShape.circle,
-              ),
-              child: const Icon(Icons.check, color: Colors.white, size: 40),
+            // TODO: add lottie
+            const Icon(
+              Icons.check_circle,
+              color: AppColorsLokin.success,
+              size: 64,
             ),
             const SizedBox(height: 16),
             Text(
-              'Izin Berhasil Diajukan!',
+              'Berhasil!',
               style: Theme.of(context).textTheme.titleLarge?.copyWith(
                     fontWeight: FontWeight.bold,
                     color: AppColorsLokin.success,
@@ -157,9 +196,15 @@ class _PermissionScreenState extends State<PermissionScreen>
           ],
         ),
         actions: [
-          CustomButton(
-            text: 'OK',
+          TextButton(
             onPressed: () => Navigator.of(context).pop(),
+            child: const Text(
+              'OK',
+              style: TextStyle(
+                color: AppColorsLokin.primary,
+                fontWeight: FontWeight.bold,
+              ),
+            ),
           ),
         ],
       ),
@@ -172,78 +217,57 @@ class _PermissionScreenState extends State<PermissionScreen>
         content: Text(message),
         backgroundColor: AppColorsLokin.error,
         behavior: SnackBarBehavior.floating,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(8),
+        ),
+        duration: const Duration(seconds: 5),
       ),
     );
   }
 
-  String? _validateCustomReason(String? value) {
-    if (_selectedReason == 'Lainnya') {
-      return ValidationHelperLokin.validateNotEmpty(value, 'Alasan izin');
-    }
-    return null;
-  }
-
   Widget _buildHeader() {
     return Container(
-      padding: const EdgeInsets.all(20),
-      decoration: BoxDecoration(
+      width: double.infinity,
+      decoration: const BoxDecoration(
         gradient: LinearGradient(
           begin: Alignment.topLeft,
           end: Alignment.bottomRight,
-          colors: [
-            AppColorsLokin.warning,
-            AppColorsLokin.warning.withOpacity(0.8)
-          ],
-        ),
-        borderRadius: const BorderRadius.only(
-          bottomLeft: Radius.circular(24),
-          bottomRight: Radius.circular(24),
+          colors: [AppColorsLokin.warning, AppColorsLokin.secondary],
         ),
       ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
+      child: SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.all(24),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Container(
-                padding: const EdgeInsets.all(12),
-                decoration: BoxDecoration(
-                  color: Colors.white.withOpacity(0.2),
-                  borderRadius: BorderRadius.circular(12),
-                ),
-                child: const Icon(
-                  Icons.assignment,
-                  color: Colors.white,
-                  size: 24,
-                ),
+              Row(
+                children: [
+                  const Icon(
+                    Icons.assignment_outlined,
+                    color: Colors.white,
+                    size: 32,
+                  ),
+                  const SizedBox(width: 12),
+                  Text(
+                    'Pengajuan Izin',
+                    style: Theme.of(context).textTheme.headlineSmall?.copyWith(
+                          color: Colors.white,
+                          fontWeight: FontWeight.bold,
+                        ),
+                  ),
+                ],
               ),
-              const SizedBox(width: 16),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      'Pengajuan Izin',
-                      style:
-                          Theme.of(context).textTheme.headlineMedium?.copyWith(
-                                color: Colors.white,
-                                fontWeight: FontWeight.bold,
-                              ),
+              const SizedBox(height: 8),
+              Text(
+                'Ajukan izin untuk kehadiran Anda',
+                style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                      color: Colors.white70,
                     ),
-                    const SizedBox(height: 4),
-                    Text(
-                      'Ajukan izin untuk tidak hadir',
-                      style: Theme.of(context).textTheme.bodyLarge?.copyWith(
-                            color: Colors.white.withOpacity(0.9),
-                          ),
-                    ),
-                  ],
-                ),
               ),
             ],
           ),
-        ],
+        ),
       ),
     );
   }
@@ -251,7 +275,7 @@ class _PermissionScreenState extends State<PermissionScreen>
   Widget _buildPermissionForm() {
     return Container(
       margin: const EdgeInsets.all(20),
-      padding: const EdgeInsets.all(20),
+      padding: const EdgeInsets.all(24),
       decoration: BoxDecoration(
         color: Colors.white,
         borderRadius: BorderRadius.circular(16),
@@ -268,24 +292,15 @@ class _PermissionScreenState extends State<PermissionScreen>
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text(
-              'Form Pengajuan Izin',
-              style: Theme.of(context).textTheme.titleLarge?.copyWith(
-                    fontWeight: FontWeight.bold,
-                    color: AppColorsLokin.textPrimary,
-                  ),
-            ),
-            const SizedBox(height: 20),
-
             // Date Selection
             Text(
               'Tanggal Izin',
               style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                    fontWeight: FontWeight.w600,
+                    fontWeight: FontWeight.bold,
                     color: AppColorsLokin.textPrimary,
                   ),
             ),
-            const SizedBox(height: 8),
+            const SizedBox(height: 12),
             GestureDetector(
               onTap: _selectDate,
               child: Container(
@@ -294,6 +309,7 @@ class _PermissionScreenState extends State<PermissionScreen>
                 decoration: BoxDecoration(
                   border: Border.all(color: AppColorsLokin.border),
                   borderRadius: BorderRadius.circular(12),
+                  color: AppColorsLokin.background,
                 ),
                 child: Row(
                   children: [
@@ -306,7 +322,7 @@ class _PermissionScreenState extends State<PermissionScreen>
                     Expanded(
                       child: Text(
                         DateHelperLokin.formatDateWithDay(_selectedDate),
-                        style: Theme.of(context).textTheme.bodyLarge?.copyWith(
+                        style: Theme.of(context).textTheme.bodyMedium?.copyWith(
                               color: AppColorsLokin.textPrimary,
                               fontWeight: FontWeight.w500,
                             ),
@@ -321,19 +337,19 @@ class _PermissionScreenState extends State<PermissionScreen>
               ),
             ),
 
-            const SizedBox(height: 20),
+            const SizedBox(height: 24),
 
             // Reason Selection
             Text(
               'Alasan Izin',
               style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                    fontWeight: FontWeight.w600,
+                    fontWeight: FontWeight.bold,
                     color: AppColorsLokin.textPrimary,
                   ),
             ),
-            const SizedBox(height: 8),
+            const SizedBox(height: 12),
 
-            // Predefined Reasons
+            // Predefined reason chips
             Wrap(
               spacing: 8,
               runSpacing: 8,
@@ -356,13 +372,13 @@ class _PermissionScreenState extends State<PermissionScreen>
                     decoration: BoxDecoration(
                       color: isSelected
                           ? AppColorsLokin.warning
-                          : Colors.transparent,
+                          : AppColorsLokin.background,
+                      borderRadius: BorderRadius.circular(20),
                       border: Border.all(
                         color: isSelected
                             ? AppColorsLokin.warning
                             : AppColorsLokin.border,
                       ),
-                      borderRadius: BorderRadius.circular(20),
                     ),
                     child: Text(
                       reason,
@@ -370,9 +386,7 @@ class _PermissionScreenState extends State<PermissionScreen>
                             color: isSelected
                                 ? Colors.white
                                 : AppColorsLokin.textSecondary,
-                            fontWeight: isSelected
-                                ? FontWeight.w600
-                                : FontWeight.normal,
+                            fontWeight: FontWeight.w500,
                           ),
                     ),
                   ),
@@ -380,34 +394,35 @@ class _PermissionScreenState extends State<PermissionScreen>
               }).toList(),
             ),
 
-            // Custom Reason Field
+            // Custom reason input (only if 'Lainnya' is selected)
             if (_selectedReason == 'Lainnya') ...[
               const SizedBox(height: 16),
               CustomTextFieldLokin(
                 controller: _reasonController,
                 label: 'Alasan Khusus',
-                hint: 'Masukkan alasan izin Anda',
-                prefixIcon: Icons.edit_note,
+                hint: 'Tulis alasan izin Anda...',
                 maxLines: 3,
-                validator: _validateCustomReason,
+                validator: (value) =>
+                    ValidationHelperLokin.validateReason(value),
               ),
             ],
 
             const SizedBox(height: 24),
 
-            // Important Note
+            // Warning Note
             Container(
               padding: const EdgeInsets.all(16),
               decoration: BoxDecoration(
                 color: AppColorsLokin.warning.withOpacity(0.1),
                 borderRadius: BorderRadius.circular(12),
-                border:
-                    Border.all(color: AppColorsLokin.warning.withOpacity(0.3)),
+                border: Border.all(
+                  color: AppColorsLokin.warning.withOpacity(0.3),
+                ),
               ),
               child: Row(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  const Icon(
+                  Icon(
                     Icons.info_outline,
                     color: AppColorsLokin.warning,
                     size: 20,
