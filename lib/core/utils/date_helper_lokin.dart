@@ -1,26 +1,9 @@
-import 'package:intl/date_symbol_data_local.dart';
 import 'package:intl/intl.dart';
 
 import '../constants/app_constants_lokin.dart';
 
 class DateHelperLokin {
-  static bool _isInitialized = false;
-
-  // Initialize locale data
-  static Future<void> _ensureInitialized() async {
-    if (!_isInitialized) {
-      try {
-        await initializeDateFormatting('id_ID', null);
-        _isInitialized = true;
-      } catch (e) {
-        print('Error initializing date formatting: $e');
-        // Fallback to default locale
-        _isInitialized = true;
-      }
-    }
-  }
-
-  // Date formatters - will be initialized lazily
+  // Private formatters - initialized once for performance
   static DateFormat? _dateFormatter;
   static DateFormat? _timeFormatter;
   static DateFormat? _dateTimeFormatter;
@@ -97,6 +80,11 @@ class DateHelperLokin {
     return apiDateTimeFormatter.format(dateTime);
   }
 
+  // Enhanced API datetime formatter with consistent format
+  static String formatDateTimeForApiConsistent(DateTime dateTime) {
+    return "${dateTime.year.toString().padLeft(4, '0')}-${dateTime.month.toString().padLeft(2, '0')}-${dateTime.day.toString().padLeft(2, '0')} ${dateTime.hour.toString().padLeft(2, '0')}:${dateTime.minute.toString().padLeft(2, '0')}:${dateTime.second.toString().padLeft(2, '0')}";
+  }
+
   // Format date with day name (Rabu, 24 September 2025)
   static String formatDateWithDay(DateTime date) {
     try {
@@ -107,45 +95,140 @@ class DateHelperLokin {
     }
   }
 
+  // Format date in Indonesian format
+  static String formatDateIndonesian(DateTime date) {
+    try {
+      final dayName = _getDayName(date.weekday);
+      final monthName = _getMonthName(date.month);
+      return '$dayName, ${date.day} $monthName ${date.year}';
+    } catch (e) {
+      return formatDate(date);
+    }
+  }
+
+  // Get Indonesian day name
+  static String _getDayName(int weekday) {
+    switch (weekday) {
+      case DateTime.monday:
+        return 'Senin';
+      case DateTime.tuesday:
+        return 'Selasa';
+      case DateTime.wednesday:
+        return 'Rabu';
+      case DateTime.thursday:
+        return 'Kamis';
+      case DateTime.friday:
+        return 'Jumat';
+      case DateTime.saturday:
+        return 'Sabtu';
+      case DateTime.sunday:
+        return 'Minggu';
+      default:
+        return 'Unknown';
+    }
+  }
+
+  // Get Indonesian month name
+  static String _getMonthName(int month) {
+    switch (month) {
+      case 1:
+        return 'Januari';
+      case 2:
+        return 'Februari';
+      case 3:
+        return 'Maret';
+      case 4:
+        return 'April';
+      case 5:
+        return 'Mei';
+      case 6:
+        return 'Juni';
+      case 7:
+        return 'Juli';
+      case 8:
+        return 'Agustus';
+      case 9:
+        return 'September';
+      case 10:
+        return 'Oktober';
+      case 11:
+        return 'November';
+      case 12:
+        return 'Desember';
+      default:
+        return 'Unknown';
+    }
+  }
+
   // Parse API date string to DateTime
   static DateTime parseApiDate(String dateString) {
-    return apiDateFormatter.parse(dateString);
+    try {
+      return apiDateFormatter.parse(dateString);
+    } catch (e) {
+      // Fallback parsing
+      return DateTime.parse(dateString);
+    }
   }
 
   // Parse API datetime string to DateTime
   static DateTime parseApiDateTime(String dateTimeString) {
-    return apiDateTimeFormatter.parse(dateTimeString);
+    try {
+      return apiDateTimeFormatter.parse(dateTimeString);
+    } catch (e) {
+      // Fallback parsing
+      return DateTime.parse(dateTimeString.replaceAll(' ', 'T'));
+    }
   }
 
-  // Parse time string to DateTime (for today's date)
-  static DateTime parseTime(String timeString) {
-    final now = DateTime.now();
-    final timeParts = timeString.split(':');
-    return DateTime(
-      now.year,
-      now.month,
-      now.day,
-      int.parse(timeParts[0]),
-      int.parse(timeParts[1]),
-    );
+  // Parse flexible datetime string
+  static DateTime? parseFlexibleDateTime(String? dateTimeString) {
+    if (dateTimeString == null || dateTimeString.isEmpty) {
+      return null;
+    }
+
+    try {
+      // Try different formats
+      final formats = [
+        'yyyy-MM-dd HH:mm:ss',
+        'yyyy-MM-dd HH:mm',
+        'yyyy-MM-dd',
+        'dd/MM/yyyy HH:mm:ss',
+        'dd/MM/yyyy HH:mm',
+        'dd/MM/yyyy',
+      ];
+
+      for (String format in formats) {
+        try {
+          return DateFormat(format).parse(dateTimeString);
+        } catch (e) {
+          continue;
+        }
+      }
+
+      // Last resort - ISO format
+      return DateTime.parse(dateTimeString);
+    } catch (e) {
+      print('Failed to parse datetime: $dateTimeString, error: $e');
+      return null;
+    }
   }
 
-  // Get current date as string for API
+  // Get current date in API format
   static String getCurrentDateForApi() {
     return formatDateForApi(DateTime.now());
   }
 
-  // Get current datetime as string for API
+  // Get current datetime in API format
   static String getCurrentDateTimeForApi() {
-    return formatDateTimeForApi(DateTime.now());
+    return formatDateTimeForApiConsistent(DateTime.now());
   }
 
   // Check if date is today
   static bool isToday(DateTime date) {
-    final now = DateTime.now();
-    return date.year == now.year &&
-        date.month == now.month &&
-        date.day == now.day;
+    final today = DateTime.now();
+    return date.year == today.year &&
+        date.month == today.month &&
+        date.day == today.day;
   }
 
   // Check if date is yesterday
@@ -156,20 +239,37 @@ class DateHelperLokin {
         date.day == yesterday.day;
   }
 
-  // Check if date is this week
-  static bool isThisWeek(DateTime date) {
-    final now = DateTime.now();
-    final startOfWeek = now.subtract(Duration(days: now.weekday - 1));
-    final endOfWeek = startOfWeek.add(const Duration(days: 6));
-
-    return date.isAfter(startOfWeek.subtract(const Duration(days: 1))) &&
-        date.isBefore(endOfWeek.add(const Duration(days: 1)));
+  // Get relative date string (Today, Yesterday, or formatted date)
+  static String getRelativeDateString(DateTime date) {
+    if (isToday(date)) {
+      return 'Hari ini';
+    } else if (isYesterday(date)) {
+      return 'Kemarin';
+    } else {
+      return formatDateIndonesian(date);
+    }
   }
 
-  // Check if date is this month
-  static bool isThisMonth(DateTime date) {
-    final now = DateTime.now();
-    return date.year == now.year && date.month == now.month;
+  // Get time difference in minutes
+  static int getTimeDifferenceInMinutes(DateTime start, DateTime end) {
+    return end.difference(start).inMinutes;
+  }
+
+  // Get time difference in hours
+  static double getTimeDifferenceInHours(DateTime start, DateTime end) {
+    return end.difference(start).inMinutes / 60.0;
+  }
+
+  // Format duration to readable string
+  static String formatDuration(Duration duration) {
+    final hours = duration.inHours;
+    final minutes = duration.inMinutes % 60;
+
+    if (hours > 0) {
+      return '${hours}j ${minutes}m';
+    } else {
+      return '${minutes}m';
+    }
   }
 
   // Get start of day
@@ -179,19 +279,7 @@ class DateHelperLokin {
 
   // Get end of day
   static DateTime getEndOfDay(DateTime date) {
-    return DateTime(date.year, date.month, date.day, 23, 59, 59);
-  }
-
-  // Get start of week (Monday)
-  static DateTime getStartOfWeek(DateTime date) {
-    final startOfWeek = date.subtract(Duration(days: date.weekday - 1));
-    return getStartOfDay(startOfWeek);
-  }
-
-  // Get end of week (Sunday)
-  static DateTime getEndOfWeek(DateTime date) {
-    final endOfWeek = date.add(Duration(days: 7 - date.weekday));
-    return getEndOfDay(endOfWeek);
+    return DateTime(date.year, date.month, date.day, 23, 59, 59, 999);
   }
 
   // Get start of month
@@ -201,157 +289,104 @@ class DateHelperLokin {
 
   // Get end of month
   static DateTime getEndOfMonth(DateTime date) {
-    final nextMonth = date.month == 12
-        ? DateTime(date.year + 1, 1, 1)
-        : DateTime(date.year, date.month + 1, 1);
-    return nextMonth.subtract(const Duration(days: 1));
+    return DateTime(date.year, date.month + 1, 0, 23, 59, 59, 999);
   }
 
-  // Get difference in days
-  static int getDifferenceInDays(DateTime start, DateTime end) {
-    return end.difference(start).inDays;
-  }
-
-  // Get difference in hours
-  static int getDifferenceInHours(DateTime start, DateTime end) {
-    return end.difference(start).inHours;
-  }
-
-  // Get difference in minutes
-  static int getDifferenceInMinutes(DateTime start, DateTime end) {
-    return end.difference(start).inMinutes;
-  }
-
-  // Get relative time string (e.g., "2 jam yang lalu")
-  static String getRelativeTime(DateTime dateTime) {
-    final now = DateTime.now();
-    final difference = now.difference(dateTime);
-
-    if (difference.inDays > 0) {
-      return '${difference.inDays} hari yang lalu';
-    } else if (difference.inHours > 0) {
-      return '${difference.inHours} jam yang lalu';
-    } else if (difference.inMinutes > 0) {
-      return '${difference.inMinutes} menit yang lalu';
-    } else {
-      return 'Baru saja';
-    }
-  }
-
-  // Get greeting based on time
-  static String getGreeting() {
-    final hour = DateTime.now().hour;
-    if (hour < 12) {
-      return 'Selamat Pagi';
-    } else if (hour < 15) {
-      return 'Selamat Siang';
-    } else if (hour < 18) {
-      return 'Selamat Sore';
-    } else {
-      return 'Selamat Malam';
-    }
-  }
-
-  // Get work day status
-  static bool isWorkDay(DateTime date) {
-    // Monday = 1, Sunday = 7
-    return date.weekday >= 1 && date.weekday <= 5;
-  }
-
-  // Get weekend status
-  static bool isWeekend(DateTime date) {
-    return date.weekday == 6 || date.weekday == 7; // Saturday or Sunday
+  // Get days in month
+  static int getDaysInMonth(DateTime date) {
+    return DateTime(date.year, date.month + 1, 0).day;
   }
 
   // Add business days (skip weekends)
   static DateTime addBusinessDays(DateTime date, int days) {
-    var result = date;
-    var remainingDays = days;
+    DateTime result = date;
+    int addedDays = 0;
 
-    while (remainingDays > 0) {
+    while (addedDays < days) {
       result = result.add(const Duration(days: 1));
-      if (isWorkDay(result)) {
-        remainingDays--;
+      if (result.weekday != DateTime.saturday &&
+          result.weekday != DateTime.sunday) {
+        addedDays++;
       }
     }
 
     return result;
   }
 
-  // Format duration to readable string
-  static String formatDuration(Duration duration) {
-    final hours = duration.inHours;
-    final minutes = duration.inMinutes % 60;
-
-    if (hours > 0) {
-      return '${hours}h ${minutes}m';
-    } else {
-      return '${minutes}m';
-    }
+  // Check if date is weekend
+  static bool isWeekend(DateTime date) {
+    return date.weekday == DateTime.saturday || date.weekday == DateTime.sunday;
   }
 
-  // Get month name in Indonesian
-  static String getMonthName(int month) {
-    const months = [
-      'Januari',
-      'Februari',
-      'Maret',
-      'April',
-      'Mei',
-      'Juni',
-      'Juli',
-      'Agustus',
-      'September',
-      'Oktober',
-      'November',
-      'Desember',
-    ];
-    return months[month - 1];
-  }
-
-  // Get day name in Indonesian
-  static String getDayName(int weekday) {
-    const days = [
-      'Senin',
-      'Selasa',
-      'Rabu',
-      'Kamis',
-      'Jumat',
-      'Sabtu',
-      'Minggu',
-    ];
-    return days[weekday - 1];
-  }
-
-  // Helper method to get day name (internal use)
-  static String _getDayName(int weekday) {
-    return getDayName(weekday);
-  }
-
-  // Check if time is within work hours
-  static bool isWithinWorkHours(
-    DateTime time, {
-    int startHour = 8,
-    int endHour = 17,
-  }) {
-    return time.hour >= startHour && time.hour < endHour;
-  }
-
-  // Get age from birth date
+  // Get age from birthdate
   static int getAge(DateTime birthDate) {
-    final now = DateTime.now();
-    int age = now.year - birthDate.year;
+    final today = DateTime.now();
+    int age = today.year - birthDate.year;
 
-    if (now.month < birthDate.month ||
-        (now.month == birthDate.month && now.day < birthDate.day)) {
+    if (today.month < birthDate.month ||
+        (today.month == birthDate.month && today.day < birthDate.day)) {
       age--;
     }
 
     return age;
   }
 
-  // Initialize method (call this early in app lifecycle)
-  static Future<void> initialize() async {
-    await _ensureInitialized();
+  // Validate date range
+  static bool isDateInRange(DateTime date, DateTime start, DateTime end) {
+    return date.isAfter(start.subtract(const Duration(days: 1))) &&
+        date.isBefore(end.add(const Duration(days: 1)));
+  }
+
+  // Get time zone offset
+  static String getTimeZoneOffset() {
+    final offset = DateTime.now().timeZoneOffset;
+    final hours = offset.inHours.abs();
+    final minutes = (offset.inMinutes % 60).abs();
+    final sign = offset.isNegative ? '-' : '+';
+
+    return '$sign${hours.toString().padLeft(2, '0')}:${minutes.toString().padLeft(2, '0')}';
+  }
+
+  // Format time with AM/PM
+  static String formatTimeWithAmPm(DateTime time) {
+    return DateFormat('hh:mm a').format(time);
+  }
+
+  // Format time in 24 hour format
+  static String formatTime24Hour(DateTime time) {
+    return DateFormat('HH:mm').format(time);
+  }
+
+  // Parse time string to DateTime (today with specified time)
+  static DateTime? parseTimeString(String timeString) {
+    try {
+      final now = DateTime.now();
+      final parts = timeString.split(':');
+
+      if (parts.length >= 2) {
+        final hour = int.parse(parts[0]);
+        final minute = int.parse(parts[1]);
+        final second = parts.length > 2 ? int.parse(parts[2]) : 0;
+
+        return DateTime(now.year, now.month, now.day, hour, minute, second);
+      }
+    } catch (e) {
+      print('Failed to parse time string: $timeString, error: $e');
+    }
+
+    return null;
+  }
+
+  static String getGreeting() {
+    final hour = DateTime.now().hour;
+    if (hour < 12) {
+      return 'Selamat pagi';
+    } else if (hour < 17) {
+      return 'Selamat siang';
+    } else if (hour < 20) {
+      return 'Selamat sore';
+    } else {
+      return 'Selamat malam';
+    }
   }
 }

@@ -88,6 +88,8 @@ class AppColorsLokin {
   static const Color facebook = Color(0xFF4267B2);
   static const Color twitter = Color(0xFF1DA1F2);
 
+  static var primaryDark;
+
   // Helper method to get color with opacity
   static Color withOpacity(Color color, double opacity) {
     return color.withOpacity(opacity);

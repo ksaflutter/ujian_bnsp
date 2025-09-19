@@ -41,6 +41,12 @@ class StatsModel {
     return (totalIzin / totalAbsen) * 100;
   }
 
+  get totalHadir => null;
+
+  get totalTerlambat => null;
+
+  get totalHari => null;
+
   @override
   String toString() {
     return 'StatsModel(totalAbsen: $totalAbsen, totalMasuk: $totalMasuk, totalIzin: $totalIzin, sudahAbsenHariIni: $sudahAbsenHariIni)';
@@ -59,4 +65,6 @@ class StatsResponse {
       data: json['data'] != null ? StatsModel.fromJson(json['data']) : null,
     );
   }
+
+  get stats => null;
 }

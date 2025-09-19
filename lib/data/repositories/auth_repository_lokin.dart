@@ -279,7 +279,8 @@ class AuthRepository {
         );
       }
 
-      final response = await _apiService.updateProfilePhoto(file);
+      final response = await _apiService.updateProfilePhoto(file,
+          photoPath: 'profile_photo');
 
       return AuthResult.success(
         message: response['message'] ?? 'Foto profil berhasil diperbarui',

@@ -93,17 +93,27 @@ class AttendanceRepository {
     }
   }
 
-  /// Get today's attendance
+  /// Get today's attendance - PERBAIKAN: Menggunakan format API yang benar
   Future<AttendanceResult> getTodayAttendance([String? date]) async {
     try {
-      final targetDate = date ?? DateHelperLokin.formatDate(DateTime.now());
+      // PERBAIKAN: Gunakan formatDateForApi() bukan formatDate()
+      final targetDate =
+          date ?? DateHelperLokin.formatDateForApi(DateTime.now());
+
+      print(
+          'DEBUG ATTENDANCE REPO: Calling getTodayAttendance with date: $targetDate');
+
       final response = await _apiService.getTodayAttendance(targetDate);
+
+      print('DEBUG ATTENDANCE REPO: API response: ${response.message}');
+      print('DEBUG ATTENDANCE REPO: API data: ${response.data?.toJson()}');
 
       return AttendanceResult.success(
         message: response.message,
         attendance: response.data,
       );
     } catch (e) {
+      print('DEBUG ATTENDANCE REPO: Error in getTodayAttendance: $e');
       return AttendanceResult.failure(message: e.toString());
     }
   }
@@ -168,27 +178,29 @@ class AttendanceRepository {
     }
   }
 
-  /// Get monthly statistics
+  /// Get monthly statistics - PERBAIKAN: Gunakan formatDateForApi()
   Future<StatsResult> getMonthlyStats(int year, int month) async {
-    final startDate = DateHelperLokin.formatDate(DateTime(year, month, 1));
-    final endDate = DateHelperLokin.formatDate(DateTime(year, month + 1, 0));
+    final startDate =
+        DateHelperLokin.formatDateForApi(DateTime(year, month, 1));
+    final endDate =
+        DateHelperLokin.formatDateForApi(DateTime(year, month + 1, 0));
 
     return getStats(start: startDate, end: endDate);
   }
 
-  /// Get yearly statistics
+  /// Get yearly statistics - PERBAIKAN: Gunakan formatDateForApi()
   Future<StatsResult> getYearlyStats(int year) async {
-    final startDate = DateHelperLokin.formatDate(DateTime(year, 1, 1));
-    final endDate = DateHelperLokin.formatDate(DateTime(year, 12, 31));
+    final startDate = DateHelperLokin.formatDateForApi(DateTime(year, 1, 1));
+    final endDate = DateHelperLokin.formatDateForApi(DateTime(year, 12, 31));
 
     return getStats(start: startDate, end: endDate);
   }
 
-  /// Get weekly statistics
+  /// Get weekly statistics - PERBAIKAN: Gunakan formatDateForApi()
   Future<StatsResult> getWeeklyStats(DateTime weekStart) async {
     final endDate = weekStart.add(const Duration(days: 6));
-    final startDate = DateHelperLokin.formatDate(weekStart);
-    final endDateFormatted = DateHelperLokin.formatDate(endDate);
+    final startDate = DateHelperLokin.formatDateForApi(weekStart);
+    final endDateFormatted = DateHelperLokin.formatDateForApi(endDate);
 
     return getStats(start: startDate, end: endDateFormatted);
   }
@@ -235,6 +247,27 @@ class AttendanceRepository {
       return false;
     } catch (e) {
       return false;
+    }
+  }
+
+  /// PERBAIKAN: Method untuk force refresh today attendance dengan debug
+  Future<AttendanceResult> forceRefreshTodayAttendance() async {
+    try {
+      final today = DateTime.now();
+      final todayFormatted = DateHelperLokin.formatDateForApi(today);
+
+      print(
+          'DEBUG FORCE REFRESH: Today date formatted for API: $todayFormatted');
+      print(
+          'DEBUG FORCE REFRESH: Current date: ${DateHelperLokin.formatDate(today)}');
+
+      // Clear any cache if exists
+      await Future.delayed(const Duration(milliseconds: 200));
+
+      return await getTodayAttendance(todayFormatted);
+    } catch (e) {
+      print('DEBUG FORCE REFRESH: Error: $e');
+      return AttendanceResult.failure(message: e.toString());
     }
   }
 }

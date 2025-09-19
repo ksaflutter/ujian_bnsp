@@ -147,6 +147,8 @@ class AttendanceResponseLokin {
           : null,
     );
   }
+
+  get attendance => null;
 }
 
 // History response model
