@@ -90,6 +90,18 @@ class UserDataLokin {
     );
   }
 
+  get id => null;
+
+  get name => null;
+
+  get email => null;
+
+  get emailVerifiedAt => null;
+
+  get createdAt => null;
+
+  get updatedAt => null;
+
   Map<String, dynamic> toJson() {
     return {'token': token, 'user': user.toJson()};
   }

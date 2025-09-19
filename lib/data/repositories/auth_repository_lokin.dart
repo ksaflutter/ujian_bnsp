@@ -19,7 +19,7 @@ class AuthRepository {
     required String password,
     required int trainingId,
     required int batchId,
-    required String gender, // FIXED: Add gender parameter
+    required String gender,
   }) async {
     try {
       print('=== AUTH REPOSITORY REGISTER ===');
@@ -31,7 +31,7 @@ class AuthRepository {
         password: password,
         trainingId: trainingId,
         batchId: batchId,
-        gender: gender, // FIXED: Pass gender to API service
+        gender: gender,
       );
 
       print('API response received: $response');
@@ -181,7 +181,7 @@ class AuthRepository {
   /// Check if user is authenticated
   bool get isAuthenticated => _preferenceService.isLoggedIn;
 
-  /// Get current user
+  /// Get current user from local storage
   UserModelLokin? get currentUser => _preferenceService.getUser();
 
   /// Get current token
@@ -233,27 +233,43 @@ class AuthRepository {
     }
   }
 
-  /// Get user profile from server
+  /// Get user profile from server - FIXED IMPLEMENTATION
   Future<AuthResult> getProfile() async {
     try {
+      print('=== GET PROFILE FROM SERVER ===');
       final response = await _apiService.getProfile();
+
+      print('Profile API response: ${response.message}');
+      print('Profile data received: ${response.data != null ? 'Yes' : 'No'}');
 
       if (response.data != null) {
         // Convert UserResponse data to UserModel
-        final userDataMap = response.data!.toJson();
-        final user = UserModelLokin.fromJson(userDataMap);
+        final userData = response.data!;
+        final user = UserModelLokin(
+          id: userData.id,
+          name: userData.name,
+          email: userData.email,
+          emailVerifiedAt: userData.emailVerifiedAt,
+          createdAt: userData.createdAt,
+          updatedAt: userData.updatedAt,
+        );
+
+        // Save user data to local storage
         await _preferenceService.saveUser(user);
+        print('User data saved to local storage: ${user.name}');
 
         return AuthResult.success(
           message: response.message,
           user: user,
         );
       } else {
+        print('Get profile failed - no data in response');
         return AuthResult.failure(
-          message: response.message,
+          message: response.message ?? 'Gagal mengambil data profil',
         );
       }
     } catch (e) {
+      print('Get profile exception: $e');
       return AuthResult.failure(
         message: _getErrorMessage(e),
       );
@@ -279,8 +295,10 @@ class AuthRepository {
         );
       }
 
-      final response = await _apiService.updateProfilePhoto(file,
-          photoPath: 'profile_photo');
+      final response = await _apiService.updateProfilePhoto(
+        file,
+        photoPath: imagePath,
+      );
 
       return AuthResult.success(
         message: response['message'] ?? 'Foto profil berhasil diperbarui',
@@ -326,36 +344,20 @@ class AuthRepository {
         data: response.data,
       );
     } catch (e) {
-      print('Get trainings error in repository: $e');
+      print('Get trainings exception: $e');
       return AuthResult.failure(
         message: _getErrorMessage(e),
       );
     }
   }
 
-  /// Get training detail by ID
-  Future<AuthResult> getTrainingDetail(int id) async {
-    try {
-      final response = await _apiService.getTrainingDetail(id);
-
-      return AuthResult.success(
-        message: response.message,
-        data: response.data,
-      );
-    } catch (e) {
-      return AuthResult.failure(
-        message: _getErrorMessage(e),
-      );
-    }
-  }
-
-  /// Get list of batches
-  Future<AuthResult> getBatches() async {
+  /// Get list of batches for specific training
+  Future<AuthResult> getBatches(int trainingId) async {
     try {
       print('=== GET BATCHES ===');
-      print('Fetching batches list...');
+      print('Fetching batches for training ID: $trainingId');
 
-      final response = await _apiService.getBatches();
+      final response = await _apiService.getBatches(trainingId);
 
       print('Batches response message: ${response.message}');
       print('Batches data count: ${response.data?.length ?? 0}');
@@ -365,136 +367,22 @@ class AuthRepository {
         data: response.data,
       );
     } catch (e) {
-      print('Get batches error in repository: $e');
+      print('Get batches exception: $e');
       return AuthResult.failure(
         message: _getErrorMessage(e),
       );
     }
   }
 
-  /// Check if user session is still valid
-  Future<bool> isSessionValid() async {
-    try {
-      if (!isAuthenticated) return false;
-
-      final result = await getProfile();
-      return result.isSuccess;
-    } catch (e) {
-      return false;
-    }
-  }
-
-  /// Refresh user session
-  Future<AuthResult> refreshSession() async {
-    try {
-      if (!isAuthenticated) {
-        return AuthResult.failure(
-          message: 'User tidak terautentikasi',
-        );
-      }
-
-      return await getProfile();
-    } catch (e) {
-      return AuthResult.failure(
-        message: _getErrorMessage(e),
-      );
-    }
-  }
-
-  /// Validate email format
-  bool isValidEmail(String email) {
-    return RegExp(r'^[\w-\.]+@([\w-]+\.)+[\w-]{2,4}$').hasMatch(email);
-  }
-
-  /// Validate password strength
-  Map<String, bool> validatePasswordStrength(String password) {
-    return {
-      'minLength': password.length >= 6,
-      'hasLowercase': password.contains(RegExp(r'[a-z]')),
-      'hasUppercase': password.contains(RegExp(r'[A-Z]')),
-      'hasDigit': password.contains(RegExp(r'[0-9]')),
-      'hasSpecialChar': password.contains(RegExp(r'[!@#$%^&*(),.?":{}|<>]')),
-    };
-  }
-
-  /// Get password strength score (0-5)
-  int getPasswordStrengthScore(String password) {
-    final validation = validatePasswordStrength(password);
-    return validation.values.where((v) => v).length;
-  }
-
-  /// Clear all cached data
-  Future<void> clearCache() async {
-    await _preferenceService.clearAllData();
-    _apiService.clearToken();
-  }
-
-  /// Export user data (for backup purposes)
-  Map<String, dynamic>? exportUserData() {
-    final user = currentUser;
-    if (user == null) return null;
-
-    return {
-      'user': user.toJson(),
-      'preferences': _preferenceService.createBackup(),
-      'timestamp': DateTime.now().toIso8601String(),
-    };
-  }
-
-  /// Import user data (for restore purposes)
-  Future<AuthResult> importUserData(Map<String, dynamic> data) async {
-    try {
-      if (data['user'] != null) {
-        final user = UserModelLokin.fromJson(data['user']);
-        await _preferenceService.saveUser(user);
-      }
-
-      if (data['preferences'] != null) {
-        await _preferenceService.restoreFromBackup(data['preferences']);
-      }
-
-      return AuthResult.success(
-        message: 'Data berhasil dipulihkan',
-      );
-    } catch (e) {
-      return AuthResult.failure(
-        message: 'Gagal memulihkan data: ${_getErrorMessage(e)}',
-      );
-    }
-  }
-
-  /// Helper method to extract meaningful error messages
+  /// Helper method to format error messages
   String _getErrorMessage(dynamic error) {
     if (error is Exception) {
-      final message = error.toString();
-
-      print('Processing error message: $message');
-
-      // Remove "Exception: " prefix if present
-      String cleanMessage = message.replaceFirst('Exception: ', '');
-
-      if (cleanMessage.contains('Tidak ada koneksi internet')) {
-        return 'Tidak dapat terhubung ke server. Periksa koneksi internet Anda.';
-      } else if (cleanMessage.contains('SocketException') ||
-          cleanMessage.contains('No address associated with hostname')) {
-        return 'Tidak dapat terhubung ke server. Periksa koneksi internet Anda.';
-      } else if (cleanMessage.contains('TimeoutException') ||
-          cleanMessage.contains('timeout')) {
-        return 'Koneksi timeout. Coba lagi nanti.';
-      } else if (cleanMessage.contains('FormatException')) {
-        return 'Format data tidak valid dari server.';
-      } else if (cleanMessage.contains('Gagal melakukan registrasi') ||
-          cleanMessage.contains('Gagal melakukan login')) {
-        return cleanMessage;
-      } else {
-        return cleanMessage.isNotEmpty
-            ? cleanMessage
-            : 'Terjadi kesalahan yang tidak diketahui';
-      }
+      return error.toString().replaceFirst('Exception: ', '');
     }
-
     return error.toString();
   }
+
+  Future isSessionValid() async {}
 }
 
 /// Result class for authentication operations
@@ -541,69 +429,19 @@ class AuthResult {
     );
   }
 
-  /// Get first error message from errors map
-  String? get firstError {
-    if (errors == null) return null;
-
-    for (var errorList in errors!.values) {
-      if (errorList is List && errorList.isNotEmpty) {
-        return errorList.first.toString();
-      }
-    }
-    return null;
-  }
-
   /// Get all error messages as a single string
   String get allErrors {
-    if (errors == null) return message;
+    if (errors == null || errors!.isEmpty) return message;
 
     List<String> errorMessages = [];
-    for (var errorList in errors!.values) {
-      if (errorList is List) {
-        errorMessages.addAll(errorList.map((e) => e.toString()));
+    errors!.forEach((key, value) {
+      if (value is List) {
+        errorMessages.addAll(value.map((e) => e.toString()));
+      } else {
+        errorMessages.add(value.toString());
       }
-    }
+    });
 
-    return errorMessages.isEmpty ? message : errorMessages.join('\n');
-  }
-
-  /// Get formatted error message for display
-  String get displayMessage {
-    if (isSuccess) return message;
-
-    // For login/register errors, show specific field errors
-    if (errors != null && errors!.isNotEmpty) {
-      return allErrors;
-    }
-
-    return message;
-  }
-
-  /// Check if error is network related
-  bool get isNetworkError {
-    return message.toLowerCase().contains('network') ||
-        message.toLowerCase().contains('connection') ||
-        message.toLowerCase().contains('internet') ||
-        message.toLowerCase().contains('timeout') ||
-        message.toLowerCase().contains('server');
-  }
-
-  /// Check if error is validation related
-  bool get isValidationError {
-    return errors != null && errors!.isNotEmpty;
-  }
-
-  /// Check if error is authentication related
-  bool get isAuthError {
-    return message.toLowerCase().contains('unauthorized') ||
-        message.toLowerCase().contains('unauthenticated') ||
-        message.toLowerCase().contains('token') ||
-        message.toLowerCase().contains('login') ||
-        message.toLowerCase().contains('password');
-  }
-
-  @override
-  String toString() {
-    return 'AuthResult(isSuccess: $isSuccess, message: $message, user: $user, token: $token, errors: $errors, data: $data)';
+    return errorMessages.isNotEmpty ? errorMessages.join('\n') : message;
   }
 }

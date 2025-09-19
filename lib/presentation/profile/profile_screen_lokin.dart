@@ -5,7 +5,7 @@ import 'package:image_picker/image_picker.dart';
 
 import '../../core/constants/app_colors_lokin.dart';
 import '../../core/utils/validation_helper_lokin.dart';
-import '../../core/widgets/custom_button_lokin.dart'; // Added this import
+import '../../core/widgets/custom_button_lokin.dart';
 import '../../core/widgets/custom_textfield_lokin.dart';
 import '../../core/widgets/loading_widget_lokin.dart';
 import '../../data/models/user_model_lokin.dart';
@@ -35,6 +35,7 @@ class _ProfileScreenState extends State<ProfileScreen>
   bool _isReminderEnabled = true;
   String _reminderTime = '08:00';
   File? _selectedImage;
+  File? _selectedProfileImage;
 
   @override
   bool get wantKeepAlive => true;
@@ -52,7 +53,12 @@ class _ProfileScreenState extends State<ProfileScreen>
   }
 
   Future<void> _initializeData() async {
+    print('=== PROFILE SCREEN INITIALIZE ===');
+
+    // Load user from local storage first
     _currentUser = _authRepository.currentUser;
+    print('Local user found: ${_currentUser?.name}');
+
     if (_currentUser != null) {
       _nameController.text = _currentUser!.name;
     }
@@ -62,27 +68,44 @@ class _ProfileScreenState extends State<ProfileScreen>
     _isReminderEnabled = _preferenceService.isReminderEnabled;
     _reminderTime = _preferenceService.reminderTime;
 
+    // Refresh UI with local data first
     setState(() {});
 
-    // Refresh user data from server
+    // Then refresh user data from server
     await _refreshUserData();
   }
 
   Future<void> _refreshUserData() async {
+    print('=== REFRESHING USER DATA FROM SERVER ===');
+
     setState(() {
       _isLoading = true;
     });
 
     try {
       final result = await _authRepository.getProfile();
+      print('Profile refresh result: ${result.isSuccess}');
+      print('Profile refresh message: ${result.message}');
+
       if (result.isSuccess && result.user != null) {
+        print('User data refreshed: ${result.user!.name}');
         setState(() {
           _currentUser = result.user;
           _nameController.text = result.user!.name;
         });
+      } else {
+        print('Failed to refresh user data: ${result.message}');
+        // Show error but don't block UI if local data exists
+        if (_currentUser == null) {
+          _showErrorSnackBar('Gagal memuat data profil: ${result.message}');
+        }
       }
     } catch (e) {
-      // Silently handle error
+      print('Exception refreshing user data: $e');
+      // Silently handle error if local data exists
+      if (_currentUser == null) {
+        _showErrorSnackBar('Terjadi kesalahan: $e');
+      }
     } finally {
       if (mounted) {
         setState(() {
@@ -178,9 +201,8 @@ class _ProfileScreenState extends State<ProfileScreen>
     });
 
     try {
-      final result = await _authRepository.updateProfilePhoto(
-        _selectedImage!.path,
-      );
+      final result =
+          await _authRepository.updateProfilePhoto(_selectedImage!.path);
 
       if (mounted) {
         setState(() {
@@ -189,9 +211,10 @@ class _ProfileScreenState extends State<ProfileScreen>
 
         if (result.isSuccess) {
           _showSuccessSnackBar(result.message);
+          // Optionally refresh user data to get updated profile photo URL
           await _refreshUserData();
         } else {
-          _showErrorSnackBar(result.message);
+          _showErrorSnackBar(result.allErrors);
         }
       }
     } catch (e) {
@@ -204,193 +227,70 @@ class _ProfileScreenState extends State<ProfileScreen>
     }
   }
 
-  Future<void> _showImageSourceDialog() async {
+  Future<void> _pickProfileImage() async {
     showModalBottomSheet(
       context: context,
       shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
       ),
       builder: (context) => SafeArea(
-        child: Padding(
-          padding: const EdgeInsets.all(20),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Text(
-                'Pilih Foto Profil',
-                style: Theme.of(context).textTheme.titleLarge?.copyWith(
-                      fontWeight: FontWeight.bold,
-                    ),
-              ),
-              const SizedBox(height: 20),
-              Row(
-                children: [
-                  Expanded(
-                    child: GestureDetector(
-                      onTap: () {
-                        Navigator.pop(context);
-                        _takePhoto();
-                      },
-                      child: Container(
-                        padding: const EdgeInsets.all(20),
-                        decoration: BoxDecoration(
-                          color: AppColorsLokin.primary.withOpacity(0.1),
-                          borderRadius: BorderRadius.circular(12),
-                        ),
-                        child: Column(
-                          children: [
-                            const Icon(
-                              Icons.camera_alt,
-                              color: AppColorsLokin.primary,
-                              size: 32,
-                            ),
-                            const SizedBox(height: 8),
-                            Text(
-                              'Kamera',
-                              style: Theme.of(context)
-                                  .textTheme
-                                  .titleMedium
-                                  ?.copyWith(
-                                    color: AppColorsLokin.primary,
-                                    fontWeight: FontWeight.w600,
-                                  ),
-                            ),
-                          ],
-                        ),
-                      ),
-                    ),
-                  ),
-                  const SizedBox(width: 16),
-                  Expanded(
-                    child: GestureDetector(
-                      onTap: () {
-                        Navigator.pop(context);
-                        _pickImage();
-                      },
-                      child: Container(
-                        padding: const EdgeInsets.all(20),
-                        decoration: BoxDecoration(
-                          color: AppColorsLokin.primary.withOpacity(0.1),
-                          borderRadius: BorderRadius.circular(12),
-                        ),
-                        child: Column(
-                          children: [
-                            const Icon(
-                              Icons.photo_library,
-                              color: AppColorsLokin.primary,
-                              size: 32,
-                            ),
-                            const SizedBox(height: 8),
-                            Text(
-                              'Galeri',
-                              style: Theme.of(context)
-                                  .textTheme
-                                  .titleMedium
-                                  ?.copyWith(
-                                    color: AppColorsLokin.primary,
-                                    fontWeight: FontWeight.w600,
-                                  ),
-                            ),
-                          ],
-                        ),
-                      ),
-                    ),
-                  ),
-                ],
-              ),
-            ],
-          ),
+        child: Wrap(
+          children: [
+            ListTile(
+              leading: const Icon(Icons.photo_library),
+              title: const Text('Pilih dari Galeri'),
+              onTap: () {
+                Navigator.pop(context);
+                _pickImage();
+              },
+            ),
+            ListTile(
+              leading: const Icon(Icons.photo_camera),
+              title: const Text('Ambil Foto'),
+              onTap: () {
+                Navigator.pop(context);
+                _takePhoto();
+              },
+            ),
+          ],
         ),
       ),
-    );
-  }
-
-  Future<void> _selectReminderTime() async {
-    final TimeOfDay? picked = await showTimePicker(
-      context: context,
-      initialTime: TimeOfDay(
-        hour: int.parse(_reminderTime.split(':')[0]),
-        minute: int.parse(_reminderTime.split(':')[1]),
-      ),
-      builder: (context, child) {
-        return Theme(
-          data: Theme.of(context).copyWith(
-            colorScheme: Theme.of(context).colorScheme.copyWith(
-                  primary: AppColorsLokin.primary,
-                ),
-          ),
-          child: child!,
-        );
-      },
-    );
-
-    if (picked != null) {
-      final formattedTime =
-          '${picked.hour.toString().padLeft(2, '0')}:${picked.minute.toString().padLeft(2, '0')}';
-      setState(() {
-        _reminderTime = formattedTime;
-      });
-      await _preferenceService.setReminderTime(formattedTime);
-    }
-  }
-
-  Future<void> _toggleDarkMode(bool value) async {
-    setState(() {
-      _isDarkMode = value;
-    });
-    await _preferenceService.setDarkMode(value);
-
-    // TODO: Implement theme change
-    _showSuccessSnackBar('Tema berhasil diubah');
-  }
-
-  Future<void> _toggleReminder(bool value) async {
-    setState(() {
-      _isReminderEnabled = value;
-    });
-    await _preferenceService.setReminderEnabled(value);
-
-    // TODO: Implement reminder scheduling
-    _showSuccessSnackBar(
-      value ? 'Pengingat diaktifkan' : 'Pengingat dinonaktifkan',
     );
   }
 
   Future<void> _logout() async {
-    final confirm = await showDialog<bool>(
+    final confirmed = await showDialog<bool>(
       context: context,
       builder: (context) => AlertDialog(
-        shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(16),
-        ),
         title: const Text('Konfirmasi Logout'),
-        content: const Text('Apakah Anda yakin ingin keluar dari akun?'),
+        content: const Text('Apakah Anda yakin ingin keluar?'),
         actions: [
           TextButton(
             onPressed: () => Navigator.of(context).pop(false),
-            child: const Text(
-              'Batal',
-              style: TextStyle(color: AppColorsLokin.textSecondary),
-            ),
+            child: const Text('Batal'),
           ),
           TextButton(
             onPressed: () => Navigator.of(context).pop(true),
-            child: const Text(
-              'Logout',
-              style: TextStyle(color: AppColorsLokin.error),
+            style: TextButton.styleFrom(
+              foregroundColor: AppColorsLokin.error,
             ),
+            child: const Text('Logout'),
           ),
         ],
       ),
     );
 
-    if (confirm == true) {
-      await _authRepository.logout();
-      if (mounted) {
-        Navigator.of(context).pushAndRemoveUntil(
-          MaterialPageRoute(builder: (context) => const LoginScreen()),
-          (route) => false,
-        );
+    if (confirmed == true) {
+      try {
+        await _authRepository.logout();
+        if (mounted) {
+          Navigator.of(context).pushAndRemoveUntil(
+            MaterialPageRoute(builder: (context) => const LoginScreen()),
+            (route) => false,
+          );
+        }
+      } catch (e) {
+        _showErrorSnackBar('Gagal logout: $e');
       }
     }
   }
@@ -417,114 +317,131 @@ class _ProfileScreenState extends State<ProfileScreen>
         shape: RoundedRectangleBorder(
           borderRadius: BorderRadius.circular(8),
         ),
+        duration: const Duration(seconds: 5),
       ),
     );
   }
 
   Widget _buildHeader() {
     return Container(
-      padding: const EdgeInsets.all(20),
-      decoration: BoxDecoration(
+      width: double.infinity,
+      decoration: const BoxDecoration(
         gradient: LinearGradient(
           begin: Alignment.topLeft,
           end: Alignment.bottomRight,
-          colors: [
-            AppColorsLokin.primary,
-            AppColorsLokin.primary.withOpacity(0.8),
-          ],
-        ),
-        borderRadius: const BorderRadius.only(
-          bottomLeft: Radius.circular(24),
-          bottomRight: Radius.circular(24),
+          colors: [AppColorsLokin.primary, AppColorsLokin.secondary],
         ),
       ),
-      child: Column(
-        children: [
-          // Profile Photo
-          Stack(
+      child: SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.all(24),
+          child: Column(
             children: [
-              Container(
-                width: 100,
-                height: 100,
-                decoration: BoxDecoration(
-                  shape: BoxShape.circle,
-                  border: Border.all(
-                    color: Colors.white,
-                    width: 3,
-                  ),
-                ),
-                child: ClipRRect(
-                  borderRadius: BorderRadius.circular(50),
-                  child: _selectedImage != null
-                      ? Image.file(
-                          _selectedImage!,
-                          fit: BoxFit.cover,
-                        )
-                      : Container(
-                          color: Colors.white.withOpacity(0.2),
-                          child: const Icon(
-                            Icons.person,
-                            size: 50,
-                            color: Colors.white,
-                          ),
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  Text(
+                    'Profil Saya',
+                    style: Theme.of(context).textTheme.headlineSmall?.copyWith(
+                          color: Colors.white,
+                          fontWeight: FontWeight.bold,
                         ),
-                ),
-              ),
-              Positioned(
-                bottom: 0,
-                right: 0,
-                child: GestureDetector(
-                  onTap: _showImageSourceDialog,
-                  child: Container(
-                    padding: const EdgeInsets.all(8),
-                    decoration: BoxDecoration(
-                      color: AppColorsLokin.primary,
-                      shape: BoxShape.circle,
-                      border: Border.all(
-                        color: Colors.white,
-                        width: 2,
-                      ),
-                    ),
-                    child: const Icon(
-                      Icons.camera_alt,
+                  ),
+                  IconButton(
+                    onPressed: _refreshUserData,
+                    icon: const Icon(
+                      Icons.refresh,
                       color: Colors.white,
-                      size: 16,
                     ),
                   ),
-                ),
+                ],
+              ),
+              const SizedBox(height: 24),
+              _buildProfileImagePicker(),
+              const SizedBox(height: 16),
+              Text(
+                _currentUser?.name ?? 'Memuat...',
+                style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                      color: Colors.white,
+                      fontWeight: FontWeight.bold,
+                    ),
+              ),
+              const SizedBox(height: 4),
+              Text(
+                _currentUser?.email ?? 'Memuat...',
+                style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                      color: Colors.white70,
+                    ),
               ),
             ],
           ),
-
-          const SizedBox(height: 16),
-
-          // User Info
-          Text(
-            _currentUser?.name ?? 'Loading...',
-            style: Theme.of(context).textTheme.headlineSmall?.copyWith(
-                  color: Colors.white,
-                  fontWeight: FontWeight.bold,
-                ),
-          ),
-          const SizedBox(height: 4),
-          Text(
-            _currentUser?.email ?? '',
-            style: Theme.of(context).textTheme.bodyLarge?.copyWith(
-                  color: Colors.white.withOpacity(0.9),
-                ),
-          ),
-        ],
+        ),
       ),
     );
   }
 
-  Widget _buildEditNameSection() {
+  Widget _buildProfileImagePicker() {
+    return Center(
+      child: GestureDetector(
+        onTap: _pickProfileImage,
+        child: Stack(
+          children: [
+            Container(
+              width: 100,
+              height: 100,
+              decoration: BoxDecoration(
+                shape: BoxShape.circle,
+                border: Border.all(
+                  color: Colors.white,
+                  width: 3,
+                ),
+                color: Colors.white.withOpacity(0.2),
+              ),
+              child: _selectedProfileImage != null
+                  ? ClipOval(
+                      child: Image.file(
+                        _selectedProfileImage!,
+                        fit: BoxFit.cover,
+                        width: 100,
+                        height: 100,
+                      ),
+                    )
+                  : const Icon(
+                      Icons.person,
+                      size: 50,
+                      color: Colors.white,
+                    ),
+            ),
+            Positioned(
+              bottom: 0,
+              right: 0,
+              child: Container(
+                width: 32,
+                height: 32,
+                decoration: const BoxDecoration(
+                  color: AppColorsLokin.accent,
+                  shape: BoxShape.circle,
+                ),
+                child: const Icon(
+                  Icons.camera_alt,
+                  size: 16,
+                  color: Colors.white,
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildPersonalInfo() {
     return Container(
-      margin: const EdgeInsets.all(20),
-      padding: const EdgeInsets.all(20),
+      margin: const EdgeInsets.all(16),
+      padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(16),
+        color: AppColorsLokin.surface,
+        borderRadius: BorderRadius.circular(12),
         boxShadow: [
           BoxShadow(
             color: Colors.black.withOpacity(0.05),
@@ -541,9 +458,8 @@ class _ProfileScreenState extends State<ProfileScreen>
             children: [
               Text(
                 'Informasi Pribadi',
-                style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                style: Theme.of(context).textTheme.titleMedium?.copyWith(
                       fontWeight: FontWeight.bold,
-                      color: AppColorsLokin.textPrimary,
                     ),
               ),
               if (!_isEditingName)
@@ -568,9 +484,9 @@ class _ProfileScreenState extends State<ProfileScreen>
                 children: [
                   CustomTextFieldLokin(
                     controller: _nameController,
-                    label: 'Nama Lengkap',
-                    hint: 'Masukkan nama lengkap',
-                    prefixIcon: Icons.person_outline,
+                    label: 'Nama',
+                    hint: 'Masukkan nama Anda',
+                    prefixIcon: Icons.person,
                     validator: ValidationHelperLokin.validateName,
                   ),
                   const SizedBox(height: 16),
@@ -657,15 +573,14 @@ class _ProfileScreenState extends State<ProfileScreen>
             children: [
               Text(
                 title,
-                style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                style: Theme.of(context).textTheme.bodySmall?.copyWith(
                       color: AppColorsLokin.textSecondary,
                     ),
               ),
               Text(
                 value,
-                style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                      fontWeight: FontWeight.w600,
-                      color: AppColorsLokin.textPrimary,
+                style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                      fontWeight: FontWeight.w500,
                     ),
               ),
             ],
@@ -677,11 +592,11 @@ class _ProfileScreenState extends State<ProfileScreen>
 
   Widget _buildSettingsSection() {
     return Container(
-      margin: const EdgeInsets.symmetric(horizontal: 20),
-      padding: const EdgeInsets.all(20),
+      margin: const EdgeInsets.symmetric(horizontal: 16),
+      padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(16),
+        color: AppColorsLokin.surface,
+        borderRadius: BorderRadius.circular(12),
         boxShadow: [
           BoxShadow(
             color: Colors.black.withOpacity(0.05),
@@ -695,76 +610,50 @@ class _ProfileScreenState extends State<ProfileScreen>
         children: [
           Text(
             'Pengaturan',
-            style: Theme.of(context).textTheme.titleLarge?.copyWith(
+            style: Theme.of(context).textTheme.titleMedium?.copyWith(
                   fontWeight: FontWeight.bold,
-                  color: AppColorsLokin.textPrimary,
                 ),
           ),
-
           const SizedBox(height: 16),
-
-          // Dark Mode Toggle
           _buildSettingItem(
             icon: Icons.dark_mode,
             title: 'Mode Gelap',
             subtitle: 'Aktifkan mode gelap untuk tampilan yang nyaman di mata',
             trailing: Switch(
               value: _isDarkMode,
-              onChanged: _toggleDarkMode,
+              onChanged: (value) async {
+                setState(() {
+                  _isDarkMode = value;
+                });
+                await _preferenceService.setDarkMode(value);
+              },
               activeColor: AppColorsLokin.primary,
             ),
           ),
-
-          const Divider(height: 32),
-
-          // Reminder Settings
+          const Divider(),
           _buildSettingItem(
             icon: Icons.notifications,
             title: 'Pengingat Absen',
-            subtitle: _isReminderEnabled
-                ? 'Diaktifkan pada pukul $_reminderTime'
-                : 'Nonaktif',
+            subtitle: 'Diaktifkan pada pukul $_reminderTime',
             trailing: Switch(
               value: _isReminderEnabled,
-              onChanged: _toggleReminder,
+              onChanged: (value) async {
+                setState(() {
+                  _isReminderEnabled = value;
+                });
+                await _preferenceService.setReminderEnabled(value);
+              },
               activeColor: AppColorsLokin.primary,
             ),
           ),
-
           if (_isReminderEnabled) ...[
-            const SizedBox(height: 12),
-            GestureDetector(
-              onTap: _selectReminderTime,
-              child: Container(
-                padding: const EdgeInsets.all(12),
-                decoration: BoxDecoration(
-                  color: AppColorsLokin.primary.withOpacity(0.1),
-                  borderRadius: BorderRadius.circular(8),
-                ),
-                child: Row(
-                  children: [
-                    const Icon(
-                      Icons.access_time,
-                      color: AppColorsLokin.primary,
-                      size: 20,
-                    ),
-                    const SizedBox(width: 8),
-                    Text(
-                      'Waktu Pengingat: $_reminderTime',
-                      style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                            color: AppColorsLokin.primary,
-                            fontWeight: FontWeight.w600,
-                          ),
-                    ),
-                    const Spacer(),
-                    const Icon(
-                      Icons.edit,
-                      color: AppColorsLokin.primary,
-                      size: 16,
-                    ),
-                  ],
-                ),
-              ),
+            const Divider(),
+            _buildSettingItem(
+              icon: Icons.schedule,
+              title: 'Waktu Pengingat',
+              subtitle: _reminderTime,
+              trailing: const Icon(Icons.arrow_forward_ios, size: 16),
+              onTap: () => _showTimePicker(),
             ),
           ],
         ],
@@ -776,82 +665,85 @@ class _ProfileScreenState extends State<ProfileScreen>
     required IconData icon,
     required String title,
     required String subtitle,
-    required Widget trailing,
+    Widget? trailing,
+    VoidCallback? onTap,
   }) {
-    return Row(
-      children: [
-        Container(
-          padding: const EdgeInsets.all(8),
-          decoration: BoxDecoration(
-            color: AppColorsLokin.primary.withOpacity(0.1),
-            borderRadius: BorderRadius.circular(8),
-          ),
-          child: Icon(
-            icon,
-            color: AppColorsLokin.primary,
-            size: 20,
-          ),
-        ),
-        const SizedBox(width: 12),
-        Expanded(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                title,
-                style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                      fontWeight: FontWeight.w600,
-                      color: AppColorsLokin.textPrimary,
-                    ),
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(8),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(vertical: 8),
+        child: Row(
+          children: [
+            Container(
+              padding: const EdgeInsets.all(8),
+              decoration: BoxDecoration(
+                color: AppColorsLokin.primary.withOpacity(0.1),
+                borderRadius: BorderRadius.circular(8),
               ),
-              Text(
-                subtitle,
-                style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                      color: AppColorsLokin.textSecondary,
-                    ),
+              child: Icon(
+                icon,
+                color: AppColorsLokin.primary,
+                size: 20,
               ),
-            ],
-          ),
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    title,
+                    style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                          fontWeight: FontWeight.w500,
+                        ),
+                  ),
+                  Text(
+                    subtitle,
+                    style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                          color: AppColorsLokin.textSecondary,
+                        ),
+                  ),
+                ],
+              ),
+            ),
+            if (trailing != null) trailing,
+          ],
         ),
-        trailing,
-      ],
+      ),
     );
   }
 
   Widget _buildLogoutButton() {
     return Container(
-      margin: const EdgeInsets.all(20),
-      child: SizedBox(
-        width: double.infinity,
-        child: OutlinedButton(
-          onPressed: _logout,
-          style: OutlinedButton.styleFrom(
-            side: const BorderSide(color: AppColorsLokin.error),
-            shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(12),
-            ),
-            padding: const EdgeInsets.symmetric(vertical: 16),
-          ),
-          child: Row(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              const Icon(
-                Icons.logout,
-                color: AppColorsLokin.error,
-              ),
-              const SizedBox(width: 8),
-              Text(
-                'Logout',
-                style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                      color: AppColorsLokin.error,
-                      fontWeight: FontWeight.w600,
-                    ),
-              ),
-            ],
-          ),
-        ),
+      margin: const EdgeInsets.all(16),
+      width: double.infinity,
+      child: CustomButton(
+        text: 'Logout',
+        onPressed: _logout,
+        backgroundColor: AppColorsLokin.error,
+        textColor: Colors.white,
       ),
     );
+  }
+
+  Future<void> _showTimePicker() async {
+    final TimeOfDay? picked = await showTimePicker(
+      context: context,
+      initialTime: TimeOfDay(
+        hour: int.parse(_reminderTime.split(':')[0]),
+        minute: int.parse(_reminderTime.split(':')[1]),
+      ),
+    );
+
+    if (picked != null) {
+      final formattedTime =
+          '${picked.hour.toString().padLeft(2, '0')}:${picked.minute.toString().padLeft(2, '0')}';
+      setState(() {
+        _reminderTime = formattedTime;
+      });
+      await _preferenceService.setReminderTime(formattedTime);
+    }
   }
 
   @override
@@ -867,7 +759,7 @@ class _ProfileScreenState extends State<ProfileScreen>
           child: Column(
             children: [
               _buildHeader(),
-              _buildEditNameSection(),
+              _buildPersonalInfo(),
               const SizedBox(height: 16),
               _buildSettingsSection(),
               _buildLogoutButton(),

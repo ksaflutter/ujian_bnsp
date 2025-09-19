@@ -429,7 +429,7 @@ class ApiService {
   }
 
   /// Get all batches
-  Future<BatchResponse> getBatches() async {
+  Future<BatchResponse> getBatches(int trainingId) async {
     return await _executeRequest(
       () => http.get(
         Uri.parse('${ApiConstantsLokin.baseUrl}/batches'),

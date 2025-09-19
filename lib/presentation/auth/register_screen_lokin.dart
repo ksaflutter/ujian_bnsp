@@ -84,7 +84,8 @@ class _RegisterScreenState extends State<RegisterScreen> {
         print('Failed to load trainings: ${trainingsResult.message}');
       }
 
-      final batchesResult = await _authRepository.getBatches();
+      final batchesResult =
+          await _authRepository.getBatches(_selectedTrainingId!);
       print('Batches result: success=${batchesResult.isSuccess}');
 
       if (batchesResult.isSuccess && batchesResult.data != null) {

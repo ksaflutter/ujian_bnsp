@@ -22,7 +22,7 @@ class AppColorsLokin {
   static const Color success = Color(0xFF27AE60);
   static const Color warning = Color(0xFFF39C12);
   static const Color error = Color(0xFFE74C3C);
-  static const Color info = Color(0xFF3498DB);
+  static const Color info = Color(0xFF3F2727);
 
   // Neutral Colors
   static const Color border = Color(0xFFE1E8ED);
