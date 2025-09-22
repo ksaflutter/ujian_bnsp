@@ -1,14 +1,13 @@
 import 'package:flutter/material.dart';
-import 'package:lokinid_app/presentation/widgets/attendance_map_widget.dart';
 
 import '../../core/constants/app_colors_lokin.dart';
 import '../../core/utils/date_helper_lokin.dart';
+import '../../core/utils/location_helper_lokin.dart';
+import '../../core/widgets/loading_widget_lokin.dart';
 import '../../data/models/attendance_model_lokin.dart';
 import '../../data/models/stats_model_lokin.dart';
-import '../../data/models/user_model_lokin.dart';
 import '../../data/repositories/attendance_repository_lokin.dart';
 import '../../data/repositories/auth_repository_lokin.dart';
-import '../auth/login_screen_lokin.dart';
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
@@ -19,13 +18,13 @@ class HomeScreen extends StatefulWidget {
 
 class _HomeScreenState extends State<HomeScreen>
     with AutomaticKeepAliveClientMixin {
-  final _authRepository = AuthRepository();
   final _attendanceRepository = AttendanceRepository();
+  final _authRepository = AuthRepository();
 
-  UserModelLokin? _currentUser;
   AttendanceModelLokin? _todayAttendance;
   StatsModel? _stats;
   bool _isLoading = false;
+  String _userName = '';
 
   @override
   bool get wantKeepAlive => true;
@@ -37,207 +36,183 @@ class _HomeScreenState extends State<HomeScreen>
   }
 
   Future<void> _initializeData() async {
-    print('=== HOME SCREEN INITIALIZE ===');
-
-    // Load user from local storage first
-    _currentUser = _authRepository.currentUser;
-    print('Local user found: ${_currentUser?.name}');
-
-    if (_currentUser == null) {
-      print('No user found, navigating to login');
-      _navigateToLogin();
-      return;
+    if (mounted) {
+      setState(() {
+        _isLoading = true;
+      });
     }
 
-    // Refresh UI with local data first
-    setState(() {});
-
-    // Then load attendance and stats data
-    await Future.wait([
-      _loadTodayAttendance(),
-      _loadStats(),
-      _refreshUserData(), // Also refresh user data from server
-    ]);
-  }
-
-  Future<void> _refreshUserData() async {
     try {
-      print('=== REFRESHING USER DATA IN HOME ===');
-      final result = await _authRepository.getProfile();
+      // Load user data
+      await _loadUserData();
 
-      if (result.isSuccess && result.user != null) {
-        print('User data refreshed in home: ${result.user!.name}');
-        setState(() {
-          _currentUser = result.user;
-        });
-      } else {
-        print('Failed to refresh user data in home: ${result.message}');
-      }
+      // Load attendance data
+      await _loadTodayAttendance();
+
+      // Load statistics
+      await _loadStats();
     } catch (e) {
-      print('Exception refreshing user data in home: $e');
-      // Silently handle error - user can still use the app with local data
+      print('Error initializing data: $e');
+    } finally {
+      if (mounted) {
+        setState(() {
+          _isLoading = false;
+        });
+      }
     }
   }
 
-  Future<void> _loadTodayAttendance() async {
+  Future<void> _loadUserData() async {
     try {
-      print('DEBUG HOME: Loading today attendance...');
-      final result = await _attendanceRepository.getTodayAttendance();
-
-      print('DEBUG HOME: API Result - isSuccess: ${result.isSuccess}');
-      print('DEBUG HOME: API Message: ${result.message}');
-
-      if (result.isSuccess && mounted) {
+      // PERBAIKAN: Gunakan currentUser property dari AuthRepository
+      final user = _authRepository.currentUser;
+      if (user != null && mounted) {
         setState(() {
-          _todayAttendance = result.attendance;
+          _userName = user.name;
         });
-        print(
-            'DEBUG HOME: Today attendance set - data: ${_todayAttendance?.toJson()}');
-        print(
-            'DEBUG HOME: hasCheckedIn: ${_todayAttendance?.checkInTime != null}');
-        print(
-            'DEBUG HOME: hasCheckedOut: ${_todayAttendance?.checkOutTime != null}');
-        print('DEBUG HOME: status: ${_todayAttendance?.status}');
+        print('User name loaded from local: ${user.name}');
       } else {
-        print('DEBUG HOME: No attendance data or API failed');
-        if (mounted) {
+        // PERBAIKAN: Jika tidak ada user lokal, coba ambil dari server
+        final result = await _authRepository.getProfile();
+        if (result.isSuccess && result.user != null && mounted) {
           setState(() {
-            _todayAttendance = null;
+            _userName = result.user!.name;
           });
+          print('User name loaded from server: ${result.user!.name}');
+        } else {
+          print('Failed to load user data: ${result.message}');
         }
       }
     } catch (e) {
-      print('DEBUG HOME: Error loading today attendance: $e');
-      if (mounted) {
+      print('Error loading user data: $e');
+    }
+  }
+
+/*************  ✨ Windsurf Command ⭐  *************/
+  /// Load today's attendance data
+  ///
+  /// This function calls the attendance repository to get the attendance
+  /// data for today, and then updates the state with the result.
+  ///
+  /// Throws an exception if there is an error loading the data.
+/*******  ae3d85b5-b8d1-43ce-b759-a4470469b9e0  *******/ Future<void>
+      _loadTodayAttendance() async {
+    try {
+      final result = await _attendanceRepository.getTodayAttendance();
+      if (mounted && result.isSuccess) {
         setState(() {
-          _todayAttendance = null;
+          _todayAttendance = result.attendance;
         });
       }
+    } catch (e) {
+      print('Error loading today attendance: $e');
     }
   }
 
   Future<void> _loadStats() async {
     try {
       final result = await _attendanceRepository.getStats();
-      if (result.isSuccess && mounted) {
+      if (mounted && result.isSuccess) {
         setState(() {
           _stats = result.stats;
         });
       }
     } catch (e) {
-      // Silently handle error
+      print('Error loading stats: $e');
     }
-  }
-
-  void _navigateToLogin() {
-    Navigator.pushAndRemoveUntil(
-      context,
-      MaterialPageRoute(builder: (context) => const LoginScreen()),
-      (route) => false,
-    );
   }
 
   Future<void> _handleCheckIn() async {
-    await _handleAttendanceWithMap(isCheckIn: true);
-  }
-
-  Future<void> _handleCheckOut() async {
-    await _handleAttendanceWithMap(isCheckIn: false);
-  }
-
-  Future<void> _handleAttendanceWithMap({required bool isCheckIn}) async {
-    if (_isLoading) return;
-
     try {
-      print(
-          'DEBUG: Opening location selector dialog for ${isCheckIn ? 'check-in' : 'check-out'}');
+      final location = await LocationHelperLokin.getCurrentLocation();
 
-      await showDialog(
-        context: context,
-        barrierDismissible: false,
-        builder: (context) => AttendanceLocationSelector(
-          title: isCheckIn
-              ? 'Pilih Lokasi untuk Absen Masuk'
-              : 'Pilih Lokasi untuk Absen Keluar',
-          onLocationConfirmed: (lat, lng, address) async {
-            print(
-                'DEBUG: Location confirmed - lat: $lat, lng: $lng, address: $address');
-            await _processAttendance(
-              isCheckIn: isCheckIn,
-              latitude: lat,
-              longitude: lng,
-              address: address,
-            );
-          },
-        ),
-      );
-    } catch (e) {
-      print('DEBUG: Error in _handleAttendanceWithMap: $e');
-      _showErrorSnackBar('Terjadi kesalahan: $e');
-    }
-  }
-
-  Future<void> _processAttendance({
-    required bool isCheckIn,
-    required double latitude,
-    required double longitude,
-    required String address,
-  }) async {
-    if (_isLoading) return;
-
-    setState(() {
-      _isLoading = true;
-    });
-
-    try {
-      print('DEBUG: Processing ${isCheckIn ? 'check-in' : 'check-out'}');
-      print('DEBUG: Coordinates - lat: $latitude, lng: $longitude');
-      print('DEBUG: Address: $address');
-
-      final result = isCheckIn
-          ? await _attendanceRepository.checkIn(
-              latitude: latitude,
-              longitude: longitude,
-              address: address,
-            )
-          : await _attendanceRepository.checkOut(
-              latitude: latitude,
-              longitude: longitude,
-              address: address,
-            );
-
-      print('DEBUG: Attendance result - success: ${result.isSuccess}');
-      print('DEBUG: Attendance message: ${result.message}');
-
-      if (mounted) {
+      if (location != null) {
         setState(() {
-          _isLoading = false;
+          _isLoading = true;
         });
 
-        if (result.isSuccess) {
-          _showSuccessDialog(result.message);
-          await _loadTodayAttendance(); // Refresh attendance data
-          await _loadStats(); // Refresh stats
-        } else {
-          _showErrorSnackBar(result.message);
+        final result = await _attendanceRepository.checkIn(
+          latitude: location.latitude,
+          longitude: location.longitude,
+          address: location.address,
+        );
+
+        if (mounted) {
+          if (result.isSuccess) {
+            _showSnackBar(result.message, isError: false);
+            await _loadTodayAttendance();
+            await _loadStats();
+          } else {
+            _showSnackBar(result.message, isError: true);
+          }
         }
       }
     } catch (e) {
-      print('DEBUG: Exception in _processAttendance: $e');
+      if (mounted) {
+        _showSnackBar('Terjadi kesalahan: $e', isError: true);
+      }
+    } finally {
       if (mounted) {
         setState(() {
           _isLoading = false;
         });
-        _showErrorSnackBar('Terjadi kesalahan: $e');
       }
     }
   }
 
-  Widget _buildHeader() {
-    final now = DateTime.now();
-    final greeting = DateHelperLokin.getGreeting();
-    final dateString = DateHelperLokin.formatDateIndonesian(now);
+  Future<void> _handleCheckOut() async {
+    try {
+      final location = await LocationHelperLokin.getCurrentLocation();
 
+      if (location != null) {
+        setState(() {
+          _isLoading = true;
+        });
+
+        final result = await _attendanceRepository.checkOut(
+          latitude: location.latitude,
+          longitude: location.longitude,
+          address: location.address,
+        );
+
+        if (mounted) {
+          if (result.isSuccess) {
+            _showSnackBar(result.message, isError: false);
+            await _loadTodayAttendance();
+            await _loadStats();
+          } else {
+            _showSnackBar(result.message, isError: true);
+          }
+        }
+      }
+    } catch (e) {
+      if (mounted) {
+        _showSnackBar('Terjadi kesalahan: $e', isError: true);
+      }
+    } finally {
+      if (mounted) {
+        setState(() {
+          _isLoading = false;
+        });
+      }
+    }
+  }
+
+  void _showSnackBar(String message, {bool isError = false}) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(message),
+        backgroundColor:
+            isError ? AppColorsLokin.error : AppColorsLokin.success,
+        behavior: SnackBarBehavior.floating,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(8),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildHeader() {
     return Container(
       width: double.infinity,
       decoration: const BoxDecoration(
@@ -261,16 +236,16 @@ class _HomeScreenState extends State<HomeScreen>
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         Text(
-                          greeting,
+                          DateHelperLokin.getGreeting(),
                           style:
-                              Theme.of(context).textTheme.titleMedium?.copyWith(
+                              Theme.of(context).textTheme.bodyMedium?.copyWith(
                                     color: Colors.white70,
-                                    fontWeight: FontWeight.w500,
                                   ),
                         ),
                         const SizedBox(height: 4),
                         Text(
-                          _currentUser?.name ?? 'Memuat...',
+                          // PERBAIKAN: Logika yang lebih robust untuk menampilkan nama user
+                          _userName.isNotEmpty ? _userName : 'User',
                           style: Theme.of(context)
                               .textTheme
                               .headlineSmall
@@ -278,31 +253,17 @@ class _HomeScreenState extends State<HomeScreen>
                                 color: Colors.white,
                                 fontWeight: FontWeight.bold,
                               ),
-                          overflow: TextOverflow.ellipsis,
                         ),
                       ],
                     ),
                   ),
-                  GestureDetector(
-                    onTap: () {
-                      // Navigate to profile or show user menu
-                    },
-                    child: Container(
-                      width: 48,
-                      height: 48,
-                      decoration: BoxDecoration(
-                        color: Colors.white.withOpacity(0.2),
-                        shape: BoxShape.circle,
-                        border: Border.all(
-                          color: Colors.white.withOpacity(0.3),
-                          width: 2,
-                        ),
-                      ),
-                      child: const Icon(
-                        Icons.person,
-                        color: Colors.white,
-                        size: 24,
-                      ),
+                  CircleAvatar(
+                    radius: 24,
+                    backgroundColor: Colors.white.withOpacity(0.2),
+                    child: const Icon(
+                      Icons.person,
+                      color: Colors.white,
+                      size: 28,
                     ),
                   ),
                 ],
@@ -310,13 +271,13 @@ class _HomeScreenState extends State<HomeScreen>
               const SizedBox(height: 16),
               Container(
                 padding:
-                    const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                    const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
                 decoration: BoxDecoration(
                   color: Colors.white.withOpacity(0.2),
                   borderRadius: BorderRadius.circular(20),
                 ),
                 child: Text(
-                  dateString,
+                  DateHelperLokin.formatDateWithDay(DateTime.now()),
                   style: Theme.of(context).textTheme.bodyMedium?.copyWith(
                         color: Colors.white,
                         fontWeight: FontWeight.w500,
@@ -331,11 +292,35 @@ class _HomeScreenState extends State<HomeScreen>
   }
 
   Widget _buildAttendanceStatus() {
+    if (_todayAttendance == null) {
+      return Container(
+        margin: const EdgeInsets.all(20),
+        padding: const EdgeInsets.all(20),
+        decoration: BoxDecoration(
+          color: AppColorsLokin.surface.withOpacity(0.1),
+          borderRadius: BorderRadius.circular(16),
+          border: Border.all(color: AppColorsLokin.border),
+        ),
+        child: const Row(
+          children: [
+            Icon(Icons.info_outline, color: AppColorsLokin.textSecondary),
+            SizedBox(width: 12),
+            Expanded(
+              child: Text(
+                'Belum ada data absensi hari ini',
+                style: TextStyle(color: AppColorsLokin.textSecondary),
+              ),
+            ),
+          ],
+        ),
+      );
+    }
+
     return Container(
-      margin: const EdgeInsets.all(16),
+      margin: const EdgeInsets.all(20),
       padding: const EdgeInsets.all(20),
       decoration: BoxDecoration(
-        color: AppColorsLokin.surface,
+        color: Colors.white,
         borderRadius: BorderRadius.circular(16),
         boxShadow: [
           BoxShadow(
@@ -350,240 +335,224 @@ class _HomeScreenState extends State<HomeScreen>
         children: [
           Text(
             'Status Absen Hari Ini',
-            style: Theme.of(context).textTheme.titleMedium?.copyWith(
+            style: Theme.of(context).textTheme.titleLarge?.copyWith(
                   fontWeight: FontWeight.bold,
+                  color: AppColorsLokin.textPrimary,
                 ),
           ),
           const SizedBox(height: 16),
-          _buildStatusCard(),
-        ],
-      ),
-    );
-  }
 
-  Widget _buildStatusCard() {
-    if (_todayAttendance == null) {
-      return _buildEmptyStatusCard();
-    }
-
-    final hasCheckedIn = _todayAttendance!.checkInTime != null;
-    final hasCheckedOut = _todayAttendance!.checkOutTime != null;
-    final isPermission = _todayAttendance!.status == 'izin';
-
-    if (isPermission) {
-      return _buildPermissionStatusCard();
-    }
-
-    return Column(
-      children: [
-        _buildStatusItem(
-          title: 'Absen Masuk',
-          time: hasCheckedIn ? _todayAttendance!.checkInTime! : null,
-          address: hasCheckedIn ? _todayAttendance!.checkInAddress : null,
-          isCompleted: hasCheckedIn,
-        ),
-        const SizedBox(height: 12),
-        _buildStatusItem(
-          title: 'Absen Keluar',
-          time: hasCheckedOut ? _todayAttendance!.checkOutTime! : null,
-          address: hasCheckedOut ? _todayAttendance!.checkOutAddress : null,
-          isCompleted: hasCheckedOut,
-        ),
-      ],
-    );
-  }
-
-  Widget _buildEmptyStatusCard() {
-    return Container(
-      width: double.infinity,
-      padding: const EdgeInsets.all(20),
-      decoration: BoxDecoration(
-        color: AppColorsLokin.background,
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: AppColorsLokin.border),
-      ),
-      child: Column(
-        children: [
-          Icon(
-            Icons.access_time,
-            size: 48,
-            color: AppColorsLokin.textSecondary.withOpacity(0.5),
-          ),
-          const SizedBox(height: 12),
-          Text(
-            'Belum Ada Absen',
-            style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                  color: AppColorsLokin.textSecondary,
-                  fontWeight: FontWeight.w500,
-                ),
-          ),
-          const SizedBox(height: 4),
-          Text(
-            'Lakukan absen masuk untuk memulai hari belajar Anda',
-            style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                  color: AppColorsLokin.textSecondary,
-                ),
-            textAlign: TextAlign.center,
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildPermissionStatusCard() {
-    return Container(
-      width: double.infinity,
-      padding: const EdgeInsets.all(20),
-      decoration: BoxDecoration(
-        color: AppColorsLokin.warning.withOpacity(0.1),
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: AppColorsLokin.warning.withOpacity(0.3)),
-      ),
-      child: Column(
-        children: [
-          Icon(
-            Icons.assignment_outlined,
-            size: 48,
-            color: AppColorsLokin.warning,
-          ),
-          const SizedBox(height: 12),
-          Text(
-            'Sedang Izin',
-            style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                  color: AppColorsLokin.warning,
-                  fontWeight: FontWeight.bold,
-                ),
-          ),
-          const SizedBox(height: 4),
-          if (_todayAttendance!.alasanIzin != null)
-            Text(
-              'Alasan: ${_todayAttendance!.alasanIzin}',
-              style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                    color: AppColorsLokin.textSecondary,
-                  ),
-              textAlign: TextAlign.center,
-            ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildStatusItem({
-    required String title,
-    required String? time,
-    required String? address,
-    required bool isCompleted,
-  }) {
-    return Container(
-      padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        color: isCompleted
-            ? AppColorsLokin.success.withOpacity(0.1)
-            : AppColorsLokin.background,
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(
-          color: isCompleted
-              ? AppColorsLokin.success.withOpacity(0.3)
-              : AppColorsLokin.border,
-        ),
-      ),
-      child: Row(
-        children: [
-          Container(
-            width: 40,
-            height: 40,
-            decoration: BoxDecoration(
-              color: isCompleted
-                  ? AppColorsLokin.success
-                  : AppColorsLokin.textSecondary.withOpacity(0.2),
-              shape: BoxShape.circle,
-            ),
-            child: Icon(
-              isCompleted ? Icons.check : Icons.access_time,
-              color: isCompleted ? Colors.white : AppColorsLokin.textSecondary,
-              size: 20,
-            ),
-          ),
-          const SizedBox(width: 12),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  title,
-                  style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                        fontWeight: FontWeight.w500,
-                        color: isCompleted
-                            ? AppColorsLokin.success
-                            : AppColorsLokin.textSecondary,
-                      ),
-                ),
-                if (isCompleted && time != null) ...[
-                  const SizedBox(height: 2),
-                  Text(
-                    time,
-                    style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                          color: AppColorsLokin.textSecondary,
-                          fontWeight: FontWeight.w500,
-                        ),
-                  ),
-                  if (address != null) ...[
-                    const SizedBox(height: 2),
-                    Text(
-                      address,
-                      style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                            color: AppColorsLokin.textSecondary,
-                          ),
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
+          // Check In Status
+          if (_todayAttendance!.checkInTime != null) ...[
+            Container(
+              width: double.infinity,
+              padding: const EdgeInsets.all(16),
+              decoration: BoxDecoration(
+                color: AppColorsLokin.success.withOpacity(0.1),
+                borderRadius: BorderRadius.circular(12),
+                border:
+                    Border.all(color: AppColorsLokin.success.withOpacity(0.3)),
+              ),
+              child: Row(
+                children: [
+                  Container(
+                    padding: const EdgeInsets.all(8),
+                    decoration: const BoxDecoration(
+                      color: AppColorsLokin.success,
+                      shape: BoxShape.circle,
                     ),
-                  ],
-                ] else if (!isCompleted) ...[
-                  const SizedBox(height: 2),
-                  Text(
-                    'Belum absen',
-                    style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                          color: AppColorsLokin.textSecondary,
+                    child: const Icon(
+                      Icons.login,
+                      color: Colors.white,
+                      size: 16,
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          'Absen Masuk',
+                          style:
+                              Theme.of(context).textTheme.titleMedium?.copyWith(
+                                    color: AppColorsLokin.success,
+                                    fontWeight: FontWeight.w600,
+                                  ),
                         ),
+                        Text(
+                          _todayAttendance!.checkInTime!,
+                          style:
+                              Theme.of(context).textTheme.bodyMedium?.copyWith(
+                                    color: AppColorsLokin.success,
+                                    fontWeight: FontWeight.w500,
+                                  ),
+                        ),
+                        if (_todayAttendance!.checkInAddress?.isNotEmpty ==
+                            true)
+                          Text(
+                            _todayAttendance!.checkInAddress!,
+                            style:
+                                Theme.of(context).textTheme.bodySmall?.copyWith(
+                                      color: AppColorsLokin.textSecondary,
+                                    ),
+                            maxLines: 2,
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                      ],
+                    ),
                   ),
                 ],
-              ],
+              ),
             ),
-          ),
+            const SizedBox(height: 12),
+          ],
+
+          // Check Out Status
+          if (_todayAttendance!.checkOutTime != null) ...[
+            Container(
+              width: double.infinity,
+              padding: const EdgeInsets.all(16),
+              decoration: BoxDecoration(
+                color: AppColorsLokin.primary.withOpacity(0.1),
+                borderRadius: BorderRadius.circular(12),
+                border:
+                    Border.all(color: AppColorsLokin.primary.withOpacity(0.3)),
+              ),
+              child: Row(
+                children: [
+                  Container(
+                    padding: const EdgeInsets.all(8),
+                    decoration: const BoxDecoration(
+                      color: AppColorsLokin.primary,
+                      shape: BoxShape.circle,
+                    ),
+                    child: const Icon(
+                      Icons.logout,
+                      color: Colors.white,
+                      size: 16,
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          'Absen Keluar',
+                          style:
+                              Theme.of(context).textTheme.titleMedium?.copyWith(
+                                    color: AppColorsLokin.primary,
+                                    fontWeight: FontWeight.w600,
+                                  ),
+                        ),
+                        Text(
+                          _todayAttendance!.checkOutTime!,
+                          style:
+                              Theme.of(context).textTheme.bodyMedium?.copyWith(
+                                    color: AppColorsLokin.primary,
+                                    fontWeight: FontWeight.w500,
+                                  ),
+                        ),
+                        if (_todayAttendance!.checkOutAddress?.isNotEmpty ==
+                            true)
+                          Text(
+                            _todayAttendance!.checkOutAddress!,
+                            style:
+                                Theme.of(context).textTheme.bodySmall?.copyWith(
+                                      color: AppColorsLokin.textSecondary,
+                                    ),
+                            maxLines: 2,
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(height: 12),
+          ],
+
+          // Permission Status
+          if (_todayAttendance!.status == 'izin') ...[
+            Container(
+              width: double.infinity,
+              padding: const EdgeInsets.all(16),
+              decoration: BoxDecoration(
+                color: AppColorsLokin.warning.withOpacity(0.1),
+                borderRadius: BorderRadius.circular(12),
+                border:
+                    Border.all(color: AppColorsLokin.warning.withOpacity(0.3)),
+              ),
+              child: Row(
+                children: [
+                  Icon(
+                    Icons.assignment_outlined,
+                    color: AppColorsLokin.warning,
+                    size: 24,
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          'Anda Sedang Izin Hari Ini',
+                          style:
+                              Theme.of(context).textTheme.titleMedium?.copyWith(
+                                    color: AppColorsLokin.warning,
+                                    fontWeight: FontWeight.w600,
+                                  ),
+                        ),
+                        if (_todayAttendance!.alasanIzin?.isNotEmpty == true)
+                          Text(
+                            _todayAttendance!.alasanIzin!,
+                            style:
+                                Theme.of(context).textTheme.bodySmall?.copyWith(
+                                      color: AppColorsLokin.textSecondary,
+                                    ),
+                          ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(height: 12),
+          ],
         ],
       ),
     );
   }
 
   Widget _buildActionButtons() {
-    final hasCheckedIn = _todayAttendance?.checkInTime != null;
-    final hasCheckedOut = _todayAttendance?.checkOutTime != null;
-    final isPermission = _todayAttendance?.status == 'izin';
-
-    if (isPermission) {
-      return const SizedBox.shrink();
-    }
+    final canCheckIn = _todayAttendance?.checkInTime == null &&
+        _todayAttendance?.status != 'izin';
+    final canCheckOut = _todayAttendance?.checkInTime != null &&
+        _todayAttendance?.checkOutTime == null &&
+        _todayAttendance?.status != 'izin';
 
     return Container(
-      margin: const EdgeInsets.symmetric(horizontal: 16),
+      margin: const EdgeInsets.symmetric(horizontal: 20),
       child: Row(
         children: [
           Expanded(
             child: _buildActionButton(
-              title: 'Absen Masuk',
               icon: Icons.login,
+              title: 'Absen Masuk',
               color: AppColorsLokin.success,
-              isEnabled: !hasCheckedIn && !_isLoading,
+              isEnabled: canCheckIn && !_isLoading,
               onTap: _handleCheckIn,
             ),
           ),
-          const SizedBox(width: 12),
+          const SizedBox(width: 16),
           Expanded(
             child: _buildActionButton(
-              title: 'Absen Keluar',
               icon: Icons.logout,
-              color: AppColorsLokin.error,
-              isEnabled: hasCheckedIn && !hasCheckedOut && !_isLoading,
+              title: 'Absen Keluar',
+              color: AppColorsLokin.primary,
+              isEnabled: canCheckOut && !_isLoading,
               onTap: _handleCheckOut,
             ),
           ),
@@ -593,11 +562,11 @@ class _HomeScreenState extends State<HomeScreen>
   }
 
   Widget _buildActionButton({
-    required String title,
     required IconData icon,
+    required String title,
     required Color color,
     required bool isEnabled,
-    required VoidCallback onTap,
+    required VoidCallback? onTap,
   }) {
     return GestureDetector(
       onTap: isEnabled ? onTap : null,
@@ -643,10 +612,10 @@ class _HomeScreenState extends State<HomeScreen>
     }
 
     return Container(
-      margin: const EdgeInsets.all(16),
+      margin: const EdgeInsets.all(20),
       padding: const EdgeInsets.all(20),
       decoration: BoxDecoration(
-        color: AppColorsLokin.surface,
+        color: Colors.white,
         borderRadius: BorderRadius.circular(16),
         boxShadow: [
           BoxShadow(
@@ -659,39 +628,64 @@ class _HomeScreenState extends State<HomeScreen>
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text(
-            'Statistik Absensi',
-            style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                  fontWeight: FontWeight.bold,
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Text(
+                'Statistik Absensi',
+                style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                      fontWeight: FontWeight.bold,
+                      color: AppColorsLokin.textPrimary,
+                    ),
+              ),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                decoration: BoxDecoration(
+                  color: AppColorsLokin.primary.withOpacity(0.1),
+                  borderRadius: BorderRadius.circular(8),
                 ),
+                child: Text(
+                  'Bulan Ini',
+                  style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                        color: AppColorsLokin.primary,
+                        fontWeight: FontWeight.w600,
+                      ),
+                ),
+              ),
+            ],
           ),
           const SizedBox(height: 16),
+
+          // PERBAIKAN: Fixed consistent layout for statistics cards
           Row(
             children: [
               Expanded(
+                flex: 1,
                 child: _buildStatItem(
-                  title: 'Total Absen',
+                  title: 'Total\nAbsen',
                   value: '${_stats!.totalAbsen}',
-                  icon: Icons.calendar_today,
                   color: AppColorsLokin.primary,
+                  icon: Icons.calendar_month,
                 ),
               ),
               const SizedBox(width: 12),
               Expanded(
+                flex: 1,
                 child: _buildStatItem(
                   title: 'Masuk',
                   value: '${_stats!.totalMasuk}',
-                  icon: Icons.check_circle,
                   color: AppColorsLokin.success,
+                  icon: Icons.check_circle,
                 ),
               ),
               const SizedBox(width: 12),
               Expanded(
+                flex: 1,
                 child: _buildStatItem(
                   title: 'Izin',
                   value: '${_stats!.totalIzin}',
-                  icon: Icons.assignment,
                   color: AppColorsLokin.warning,
+                  icon: Icons.assignment,
                 ),
               ),
             ],
@@ -704,101 +698,47 @@ class _HomeScreenState extends State<HomeScreen>
   Widget _buildStatItem({
     required String title,
     required String value,
-    required IconData icon,
     required Color color,
+    required IconData icon,
   }) {
     return Container(
-      padding: const EdgeInsets.all(16),
+      // PERBAIKAN: Fixed height dan padding untuk konsistensi
+      height: 120,
+      padding: const EdgeInsets.all(12),
       decoration: BoxDecoration(
         color: color.withOpacity(0.1),
         borderRadius: BorderRadius.circular(12),
         border: Border.all(color: color.withOpacity(0.2)),
       ),
       child: Column(
+        mainAxisAlignment: MainAxisAlignment.center,
         children: [
           Icon(
             icon,
             color: color,
-            size: 24,
+            size: 18,
           ),
-          const SizedBox(height: 8),
+          const SizedBox(height: 6),
           Text(
             value,
             style: Theme.of(context).textTheme.titleLarge?.copyWith(
-                  color: color,
                   fontWeight: FontWeight.bold,
+                  color: color,
+                  fontSize: 18,
                 ),
           ),
-          const SizedBox(height: 4),
+          const SizedBox(height: 2),
           Text(
             title,
             style: Theme.of(context).textTheme.bodySmall?.copyWith(
                   color: AppColorsLokin.textSecondary,
+                  fontSize: 8,
                 ),
             textAlign: TextAlign.center,
+            maxLines: 2,
+            overflow: TextOverflow.ellipsis,
           ),
         ],
-      ),
-    );
-  }
-
-  void _showSuccessDialog(String message) {
-    showDialog(
-      context: context,
-      builder: (context) => AlertDialog(
-        shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(16),
-        ),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            const Icon(
-              Icons.check_circle,
-              color: AppColorsLokin.success,
-              size: 64,
-            ),
-            const SizedBox(height: 16),
-            Text(
-              'Berhasil!',
-              style: Theme.of(context).textTheme.titleLarge?.copyWith(
-                    fontWeight: FontWeight.bold,
-                    color: AppColorsLokin.success,
-                  ),
-            ),
-            const SizedBox(height: 8),
-            Text(
-              message,
-              textAlign: TextAlign.center,
-              style: Theme.of(context).textTheme.bodyMedium,
-            ),
-          ],
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(context).pop(),
-            child: const Text(
-              'OK',
-              style: TextStyle(
-                color: AppColorsLokin.primary,
-                fontWeight: FontWeight.bold,
-              ),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  void _showErrorSnackBar(String message) {
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text(message),
-        backgroundColor: AppColorsLokin.error,
-        behavior: SnackBarBehavior.floating,
-        shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(8),
-        ),
-        duration: const Duration(seconds: 5),
       ),
     );
   }
@@ -809,21 +749,23 @@ class _HomeScreenState extends State<HomeScreen>
 
     return Scaffold(
       backgroundColor: AppColorsLokin.background,
-      body: RefreshIndicator(
-        onRefresh: _initializeData,
-        child: SingleChildScrollView(
-          physics: const AlwaysScrollableScrollPhysics(),
-          child: Column(
-            children: [
-              _buildHeader(),
-              _buildAttendanceStatus(),
-              _buildActionButtons(),
-              _buildStatsCard(),
-              const SizedBox(height: 20),
-            ],
-          ),
-        ),
-      ),
+      body: _isLoading
+          ? const Center(child: LoadingWidgetLokin())
+          : RefreshIndicator(
+              onRefresh: _initializeData,
+              child: SingleChildScrollView(
+                physics: const AlwaysScrollableScrollPhysics(),
+                child: Column(
+                  children: [
+                    _buildHeader(),
+                    _buildAttendanceStatus(),
+                    _buildActionButtons(),
+                    _buildStatsCard(),
+                    const SizedBox(height: 20),
+                  ],
+                ),
+              ),
+            ),
     );
   }
 }

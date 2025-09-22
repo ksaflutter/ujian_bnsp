@@ -364,6 +364,8 @@ class LocationHelperLokin {
       return getDefaultPosition();
     }
   }
+
+  static Future getCurrentLocation() async {}
 }
 
 // Custom exceptions
