@@ -74,6 +74,12 @@ class UserModelLokin {
 
   @override
   int get hashCode => id.hashCode;
+
+  get training => null;
+
+  get trainings => null;
+
+  get batches => null;
 }
 
 // User data with token for authentication

@@ -251,7 +251,7 @@ class _HistoryScreenState extends State<HistoryScreen>
         ),
       ),
       child: Padding(
-        padding: const EdgeInsets.all(24),
+        padding: const EdgeInsets.fromLTRB(20, 40, 20, 30),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
@@ -262,7 +262,7 @@ class _HistoryScreenState extends State<HistoryScreen>
                     fontWeight: FontWeight.bold,
                   ),
             ),
-            const SizedBox(height: 8),
+            const SizedBox(height: 12),
             Text(
               'Lihat riwayat kehadiran Anda',
               style: Theme.of(context).textTheme.bodyLarge?.copyWith(

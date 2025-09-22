@@ -23,8 +23,6 @@ class AuthRepository {
   }) async {
     try {
       print('=== AUTH REPOSITORY REGISTER ===');
-      print('Starting registration process...');
-
       final response = await _apiService.register(
         name: name,
         email: email,
@@ -34,24 +32,15 @@ class AuthRepository {
         gender: gender,
       );
 
-      print('API response received: $response');
-
       if (response['data'] != null) {
         final token = response['data']['token'];
         final userData = response['data']['user'];
 
-        print('Token received: ${token != null ? 'Yes' : 'No'}');
-        print('User data received: ${userData != null ? 'Yes' : 'No'}');
-
-        // Save token and user data
         await _preferenceService.saveToken(token);
         final user = UserModelLokin.fromJson(userData);
         await _preferenceService.saveUser(user);
 
-        // Set token in API service
         _apiService.setToken(token);
-
-        print('Registration successful for user: ${user.name}');
 
         return AuthResult.success(
           message: response['message'] ?? 'Registrasi berhasil',
@@ -59,14 +48,12 @@ class AuthRepository {
           token: token,
         );
       } else {
-        print('Registration failed - no data in response');
         return AuthResult.failure(
           message: response['message'] ?? 'Registrasi gagal',
           errors: response['errors'],
         );
       }
     } catch (e) {
-      print('Registration exception in repository: $e');
       return AuthResult.failure(
         message: _getErrorMessage(e),
       );
@@ -80,28 +67,20 @@ class AuthRepository {
   }) async {
     try {
       print('=== AUTH REPOSITORY LOGIN ===');
-      print('Starting login process for: $email');
-
       final response = await _apiService.login(
         email: email,
         password: password,
       );
 
-      print('Login API response received: $response');
-
       if (response['data'] != null) {
         final token = response['data']['token'];
         final userData = response['data']['user'];
 
-        // Save token and user data
         await _preferenceService.saveToken(token);
         final user = UserModelLokin.fromJson(userData);
         await _preferenceService.saveUser(user);
 
-        // Set token in API service
         _apiService.setToken(token);
-
-        print('Login successful for user: ${user.name}');
 
         return AuthResult.success(
           message: response['message'] ?? 'Login berhasil',
@@ -109,13 +88,11 @@ class AuthRepository {
           token: token,
         );
       } else {
-        print('Login failed - no data in response');
         return AuthResult.failure(
           message: response['message'] ?? 'Login gagal',
         );
       }
     } catch (e) {
-      print('Login exception in repository: $e');
       return AuthResult.failure(
         message: _getErrorMessage(e),
       );
@@ -128,7 +105,6 @@ class AuthRepository {
   }) async {
     try {
       final response = await _apiService.forgotPassword(email: email);
-
       return AuthResult.success(
         message: response['message'] ?? 'OTP berhasil dikirim ke email',
       );
@@ -151,7 +127,6 @@ class AuthRepository {
         otp: otp,
         password: password,
       );
-
       return AuthResult.success(
         message: response['message'] ?? 'Password berhasil diperbarui',
       );
@@ -170,8 +145,6 @@ class AuthRepository {
       if (token != null && token.isNotEmpty) {
         _apiService.setToken(token);
         print('Auth initialized with existing token');
-      } else {
-        print('No existing token found');
       }
     } catch (e) {
       print('Error initializing auth: $e');
@@ -190,14 +163,10 @@ class AuthRepository {
   /// Logout user
   Future<void> logout() async {
     try {
-      // Clear token from API service
       _apiService.clearToken();
-
-      // Clear all user data from preferences
       await _preferenceService.clearAllUserData();
       print('Logout completed successfully');
     } catch (e) {
-      // Even if there's an error, ensure local data is cleared
       await _preferenceService.clearAllUserData();
       _apiService.clearToken();
       print('Logout error: $e');
@@ -233,43 +202,25 @@ class AuthRepository {
     }
   }
 
-  /// Get user profile from server - FIXED IMPLEMENTATION
+  /// Get user profile from server
   Future<AuthResult> getProfile() async {
     try {
-      print('=== GET PROFILE FROM SERVER ===');
       final response = await _apiService.getProfile();
 
-      print('Profile API response: ${response.message}');
-      print('Profile data received: ${response.data != null ? 'Yes' : 'No'}');
-
       if (response.data != null) {
-        // Convert UserResponse data to UserModel
-        final userData = response.data!;
-        final user = UserModelLokin(
-          id: userData.id,
-          name: userData.name,
-          email: userData.email,
-          emailVerifiedAt: userData.emailVerifiedAt,
-          createdAt: userData.createdAt,
-          updatedAt: userData.updatedAt,
-        );
-
-        // Save user data to local storage
+        final user = response.data!;
         await _preferenceService.saveUser(user);
-        print('User data saved to local storage: ${user.name}');
 
         return AuthResult.success(
           message: response.message,
           user: user,
         );
       } else {
-        print('Get profile failed - no data in response');
         return AuthResult.failure(
-          message: response.message ?? 'Gagal mengambil data profil',
+          message: response.message,
         );
       }
     } catch (e) {
-      print('Get profile exception: $e');
       return AuthResult.failure(
         message: _getErrorMessage(e),
       );
@@ -279,20 +230,15 @@ class AuthRepository {
   /// Update profile photo
   Future<AuthResult> updateProfilePhoto(String imagePath) async {
     try {
-      // Validate file exists
       final file = File(imagePath);
       if (!await file.exists()) {
-        return AuthResult.failure(
-          message: 'File gambar tidak ditemukan',
-        );
+        return AuthResult.failure(message: 'File gambar tidak ditemukan');
       }
 
-      // Check file size (max 5MB)
       final fileSize = await file.length();
       if (fileSize > 5 * 1024 * 1024) {
         return AuthResult.failure(
-          message: 'Ukuran file terlalu besar (maksimal 5MB)',
-        );
+            message: 'Ukuran file terlalu besar (maksimal 5MB)');
       }
 
       final response = await _apiService.updateProfilePhoto(
@@ -300,81 +246,71 @@ class AuthRepository {
         photoPath: imagePath,
       );
 
-      return AuthResult.success(
-        message: response['message'] ?? 'Foto profil berhasil diperbarui',
-        data: response['data'],
-      );
+      if (response['data'] != null) {
+        // simpan user baru ke local storage
+        final user = UserModelLokin.fromJson(response['data']);
+        await _preferenceService.saveUser(user);
+
+        return AuthResult.success(
+          message: response['message'] ?? 'Foto profil berhasil diperbarui',
+          user: user,
+        );
+      } else {
+        return AuthResult.failure(
+          message: response['message'] ?? 'Gagal update foto',
+        );
+      }
     } catch (e) {
-      return AuthResult.failure(
-        message: _getErrorMessage(e),
-      );
+      return AuthResult.failure(message: _getErrorMessage(e));
     }
   }
 
-  /// Save device token for push notifications
+  /// Save device token
   Future<AuthResult> saveDeviceToken(String deviceToken) async {
     try {
       final response = await _apiService.saveDeviceToken(deviceToken);
-
       return AuthResult.success(
         message: response['message'] ?? 'Device token berhasil disimpan',
         data: response['data'],
       );
     } catch (e) {
-      // Silently fail for device token, not critical
       return AuthResult.failure(
         message: 'Failed to save device token: ${_getErrorMessage(e)}',
       );
     }
   }
 
-  /// Get list of trainings (for registration)
+  /// Get list of trainings
   Future<AuthResult> getTrainings() async {
     try {
-      print('=== GET TRAININGS ===');
-      print('Fetching trainings list...');
-
       final response = await _apiService.getTrainings();
-
-      print('Trainings response message: ${response.message}');
-      print('Trainings data count: ${response.data?.length ?? 0}');
-
       return AuthResult.success(
         message: response.message,
         data: response.data,
       );
     } catch (e) {
-      print('Get trainings exception: $e');
       return AuthResult.failure(
         message: _getErrorMessage(e),
       );
     }
   }
 
-  /// Get list of batches for specific training
+  /// Get list of batches
   Future<AuthResult> getBatches(int trainingId) async {
     try {
-      print('=== GET BATCHES ===');
-      print('Fetching batches for training ID: $trainingId');
-
       final response = await _apiService.getBatches(trainingId);
-
-      print('Batches response message: ${response.message}');
-      print('Batches data count: ${response.data?.length ?? 0}');
-
       return AuthResult.success(
         message: response.message,
         data: response.data,
       );
     } catch (e) {
-      print('Get batches exception: $e');
       return AuthResult.failure(
         message: _getErrorMessage(e),
       );
     }
   }
 
-  /// Helper method to format error messages
+  /// Error message helper
   String _getErrorMessage(dynamic error) {
     if (error is Exception) {
       return error.toString().replaceFirst('Exception: ', '');
@@ -387,7 +323,6 @@ class AuthRepository {
   Future getCurrentUser() async {}
 }
 
-/// Result class for authentication operations
 class AuthResult {
   final bool isSuccess;
   final String message;
@@ -431,7 +366,6 @@ class AuthResult {
     );
   }
 
-  /// Get all error messages as a single string
   String get allErrors {
     if (errors == null || errors!.isEmpty) return message;
 

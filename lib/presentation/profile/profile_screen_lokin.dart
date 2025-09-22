@@ -44,6 +44,8 @@ class _ProfileScreenState extends State<ProfileScreen>
   @override
   bool get wantKeepAlive => true;
 
+  File? get profile_photo => _selectedProfileImage;
+
   @override
   void initState() {
     super.initState();
@@ -63,6 +65,7 @@ class _ProfileScreenState extends State<ProfileScreen>
     super.dispose();
   }
 
+  // === Reminder logic (tidak berubah) ===
   void _checkAndShowReminder() {
     if (!_isReminderEnabled) return;
     final now = DateTime.now();
@@ -109,7 +112,6 @@ class _ProfileScreenState extends State<ProfileScreen>
   void _showInAppReminder() {
     if (!mounted) return;
 
-    // Show SnackBar only (Dialog removed)
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
         content: Container(
@@ -240,12 +242,10 @@ class _ProfileScreenState extends State<ProfileScreen>
           await _authRepository.updateProfilePhoto(_selectedProfileImage!.path);
       if (result.isSuccess) {
         _showSuccessSnackBar('Foto profil berhasil diperbarui');
-        await _loadUserData();
+        await _loadUserData(); // refresh dari server + save lokal
       } else {
         _showErrorSnackBar(result.message ?? 'Gagal memperbarui foto profil');
-        setState(() {
-          _selectedProfileImage = null;
-        });
+        setState(() => _selectedProfileImage = profile_photo);
       }
     } catch (e) {
       _showErrorSnackBar('Gagal memperbarui foto: $e');
@@ -281,7 +281,7 @@ class _ProfileScreenState extends State<ProfileScreen>
           await _preferenceService.saveUser(result.user!);
         }
       } else {
-        _showErrorSnackBar(result.message ?? 'Gagal memperbarui nama');
+        _showErrorSnackBar(result.message);
       }
     } catch (e) {
       _showErrorSnackBar('Gagal memperbarui nama: $e');
@@ -450,31 +450,41 @@ class _ProfileScreenState extends State<ProfileScreen>
           bottomRight: Radius.circular(30),
         ),
       ),
-      child: Column(
-        children: [
-          _buildProfileImagePicker(),
-          const SizedBox(height: 16),
-          Text(
-            _currentUser?.name ?? 'Memuat...',
-            style: Theme.of(context).textTheme.titleLarge?.copyWith(
-                  color: Colors.white,
-                  fontWeight: FontWeight.bold,
-                ),
+      child: SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.all(20),
+          child: Column(
+            children: [
+              _buildProfileImagePicker(),
+              const SizedBox(height: 16),
+            ],
           ),
-          const SizedBox(height: 4),
-          Text(
-            _currentUser?.email ?? 'Memuat...',
-            style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                  color: Colors.white70,
-                ),
-          ),
-          const SizedBox(height: 10),
-        ],
+        ),
       ),
     );
   }
 
   Widget _buildProfileImagePicker() {
+    final imageWidget = () {
+      if (_selectedProfileImage != null) {
+        return Image.file(_selectedProfileImage!,
+            fit: BoxFit.cover, width: 100, height: 100);
+      }
+      if (_currentUser?.profilePhoto != null &&
+          _currentUser!.profilePhoto!.isNotEmpty) {
+        return Image.network(
+          _currentUser!.profilePhoto!,
+          fit: BoxFit.cover,
+          width: 100,
+          height: 100,
+          errorBuilder: (_, __, ___) {
+            return const Icon(Icons.person, size: 50, color: Colors.white);
+          },
+        );
+      }
+      return const Icon(Icons.person, size: 50, color: Colors.white);
+    }();
+
     return GestureDetector(
       onTap: _pickProfileImage,
       child: Stack(
@@ -490,20 +500,7 @@ class _ProfileScreenState extends State<ProfileScreen>
               ),
               color: Colors.white.withOpacity(0.2),
             ),
-            child: _selectedProfileImage != null
-                ? ClipOval(
-                    child: Image.file(
-                      _selectedProfileImage!,
-                      fit: BoxFit.cover,
-                      width: 100,
-                      height: 100,
-                    ),
-                  )
-                : const Icon(
-                    Icons.person,
-                    size: 50,
-                    color: Colors.white,
-                  ),
+            child: ClipOval(child: imageWidget),
           ),
           Positioned(
             bottom: 0,
@@ -675,17 +672,6 @@ class _ProfileScreenState extends State<ProfileScreen>
                 ),
           ),
           const SizedBox(height: 16),
-          _buildSettingItem(
-            icon: Icons.dark_mode,
-            title: 'Mode Gelap',
-            subtitle: 'Aktifkan mode gelap untuk tampilan yang nyaman di mata',
-            trailing: Switch(
-              value: _isDarkMode,
-              onChanged: _toggleDarkMode,
-              activeColor: AppColorsLokin.primary,
-            ),
-          ),
-          const Divider(),
           _buildSettingItem(
             icon: Icons.notifications,
             title: 'Pengingat Absen',

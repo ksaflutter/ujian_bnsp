@@ -232,7 +232,7 @@ class _PermissionScreenState extends State<PermissionScreen>
         gradient: LinearGradient(
           begin: Alignment.topLeft,
           end: Alignment.bottomRight,
-          colors: [AppColorsLokin.warning, AppColorsLokin.secondary],
+          colors: [AppColorsLokin.primary, AppColorsLokin.secondary],
         ),
         borderRadius: BorderRadius.only(
           bottomLeft: Radius.circular(30),
@@ -241,7 +241,7 @@ class _PermissionScreenState extends State<PermissionScreen>
       ),
       child: SafeArea(
         child: Padding(
-          padding: const EdgeInsets.all(24),
+          padding: const EdgeInsets.fromLTRB(20, 5, 20, 25),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [

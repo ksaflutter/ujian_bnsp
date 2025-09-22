@@ -385,18 +385,18 @@ class _HomeScreenState extends State<HomeScreen>
                     ],
                   ),
                   const Spacer(),
-                  Container(
-                    padding: const EdgeInsets.all(8),
-                    decoration: BoxDecoration(
-                      color: Colors.white.withOpacity(0.2),
-                      borderRadius: BorderRadius.circular(12),
-                    ),
-                    child: const Icon(
-                      Icons.person,
-                      color: Colors.white,
-                      size: 24,
-                    ),
-                  ),
+                  // Container(
+                  //   padding: const EdgeInsets.all(8),
+                  //   decoration: BoxDecoration(
+                  //     color: Colors.white.withOpacity(0.2),
+                  //     borderRadius: BorderRadius.circular(12),
+                  //   ),
+                  //   child: const Icon(
+                  //     Icons.person,
+                  //     color: Colors.white,
+                  //     size: 24,
+                  //   ),
+                  // ),
                 ],
               ),
               const SizedBox(height: 20),
