@@ -39,14 +39,20 @@ class _ProfileScreenState extends State<ProfileScreen>
   String _reminderTime = "08:00";
   Timer? _reminderTimer;
 
+  DateTime? _lastReminderShown;
+
   @override
   bool get wantKeepAlive => true;
 
   @override
   void initState() {
     super.initState();
-    _loadUserData();
-    _loadSettings();
+    _initAsync();
+  }
+
+  Future<void> _initAsync() async {
+    await _loadUserData();
+    await _loadSettings();
     _startReminderCheck();
   }
 
@@ -57,27 +63,53 @@ class _ProfileScreenState extends State<ProfileScreen>
     super.dispose();
   }
 
+  void _checkAndShowReminder() {
+    if (!_isReminderEnabled) return;
+    final now = DateTime.now();
+
+    if (_lastReminderShown != null) {
+      final secondsSinceLast = now.difference(_lastReminderShown!).inSeconds;
+      if (secondsSinceLast < 60) {
+        return;
+      }
+    }
+
+    final timeString =
+        '${now.hour.toString().padLeft(2, '0')}:${now.minute.toString().padLeft(2, '0')}';
+    if (timeString == _reminderTime && mounted) {
+      _lastReminderShown = now;
+      _showInAppReminder();
+    }
+  }
+
   void _startReminderCheck() {
     _reminderTimer?.cancel();
+    _reminderTimer = null;
 
-    // Check every minute for reminder time
-    _reminderTimer = Timer.periodic(const Duration(minutes: 1), (timer) {
-      if (!_isReminderEnabled) return;
+    if (!_isReminderEnabled) return;
 
-      final now = DateTime.now();
-      final timeString =
-          '${now.hour.toString().padLeft(2, '0')}:${now.minute.toString().padLeft(2, '0')}';
+    final now = DateTime.now();
+    _checkAndShowReminder();
 
-      if (timeString == _reminderTime && mounted) {
-        _showInAppReminder();
-      }
+    final nextMinute =
+        DateTime(now.year, now.month, now.day, now.hour, now.minute)
+            .add(const Duration(minutes: 1));
+    final initialDelay = nextMinute.difference(now);
+
+    _reminderTimer = Timer(initialDelay, () {
+      _checkAndShowReminder();
+
+      _reminderTimer?.cancel();
+      _reminderTimer = Timer.periodic(const Duration(minutes: 1), (timer) {
+        _checkAndShowReminder();
+      });
     });
   }
 
   void _showInAppReminder() {
     if (!mounted) return;
 
-    // Show prominent SnackBar as reminder
+    // Show SnackBar only (Dialog removed)
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
         content: Container(
@@ -131,48 +163,9 @@ class _ProfileScreenState extends State<ProfileScreen>
           label: 'ABSEN',
           textColor: Colors.white,
           onPressed: () {
-            // Navigate to home for attendance
             DefaultTabController.of(context).animateTo(0);
           },
         ),
-      ),
-    );
-
-    // Also show as Dialog for more visibility
-    showDialog(
-      context: context,
-      barrierDismissible: false,
-      builder: (context) => AlertDialog(
-        shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(16),
-        ),
-        title: Row(
-          children: [
-            Icon(Icons.alarm, color: AppColorsLokin.primary),
-            const SizedBox(width: 8),
-            const Text('Pengingat Absen'),
-          ],
-        ),
-        content: const Text(
-          'Hai! Ini adalah pengingat untuk melakukan absensi Anda hari ini. Jangan lupa untuk absen tepat waktu ya!',
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text('Nanti'),
-          ),
-          ElevatedButton(
-            onPressed: () {
-              Navigator.pop(context);
-              // Navigate to home screen
-              DefaultTabController.of(context).animateTo(0);
-            },
-            style: ElevatedButton.styleFrom(
-              backgroundColor: AppColorsLokin.primary,
-            ),
-            child: const Text('Absen Sekarang'),
-          ),
-        ],
       ),
     );
   }
@@ -325,6 +318,12 @@ class _ProfileScreenState extends State<ProfileScreen>
         _reminderTime = formattedTime;
       });
       await _preferenceService.setReminderTime(formattedTime);
+
+      if (_isReminderEnabled) {
+        _startReminderCheck();
+        _checkAndShowReminder();
+      }
+
       _showSuccessSnackBar('Waktu pengingat diatur ke $formattedTime');
     }
   }
@@ -335,7 +334,6 @@ class _ProfileScreenState extends State<ProfileScreen>
     });
     await _preferenceService.setDarkMode(value);
 
-    // Update theme using Provider
     if (mounted) {
       context.read<ThemeProvider>().toggleTheme();
     }
@@ -351,9 +349,11 @@ class _ProfileScreenState extends State<ProfileScreen>
 
     if (value) {
       _startReminderCheck();
+      _checkAndShowReminder();
       _showSuccessSnackBar('Pengingat diaktifkan pada pukul $_reminderTime');
     } else {
       _reminderTimer?.cancel();
+      _reminderTimer = null;
       _showSuccessSnackBar('Pengingat dinonaktifkan');
     }
   }
