@@ -2,33 +2,31 @@ import 'package:flutter/material.dart';
 
 import '../../core/constants/app_colors_lokin.dart';
 import '../../core/utils/date_helper_lokin.dart';
-import '../../core/utils/location_helper_lokin.dart';
 import '../../core/widgets/loading_widget_lokin.dart';
 import '../../data/models/attendance_model_lokin.dart';
 import '../../data/models/stats_model_lokin.dart';
+import '../../data/models/user_model_lokin.dart';
 import '../../data/repositories/attendance_repository_lokin.dart';
 import '../../data/repositories/auth_repository_lokin.dart';
+import '../auth/login_screen_lokin.dart';
+import '../widgets/attendance_map_widget.dart';
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
-
   @override
   State<HomeScreen> createState() => _HomeScreenState();
 }
 
 class _HomeScreenState extends State<HomeScreen>
     with AutomaticKeepAliveClientMixin {
-  final _attendanceRepository = AttendanceRepository();
   final _authRepository = AuthRepository();
-
+  final _attendanceRepository = AttendanceRepository();
+  UserModelLokin? _currentUser;
   AttendanceModelLokin? _todayAttendance;
   StatsModel? _stats;
   bool _isLoading = false;
-  String _userName = '';
-
   @override
   bool get wantKeepAlive => true;
-
   @override
   void initState() {
     super.initState();
@@ -36,175 +34,308 @@ class _HomeScreenState extends State<HomeScreen>
   }
 
   Future<void> _initializeData() async {
-    if (mounted) {
-      setState(() {
-        _isLoading = true;
-      });
+    _currentUser = _authRepository.currentUser;
+    if (_currentUser == null) {
+      _navigateToLogin();
+      return;
     }
-
-    try {
-      // Load user data
-      await _loadUserData();
-
-      // Load attendance data
-      await _loadTodayAttendance();
-
-      // Load statistics
-      await _loadStats();
-    } catch (e) {
-      print('Error initializing data: $e');
-    } finally {
-      if (mounted) {
-        setState(() {
-          _isLoading = false;
-        });
-      }
-    }
+    await Future.wait([_loadTodayAttendance(), _loadStats()]);
   }
 
-  Future<void> _loadUserData() async {
-    try {
-      // PERBAIKAN: Gunakan currentUser property dari AuthRepository
-      final user = _authRepository.currentUser;
-      if (user != null && mounted) {
-        setState(() {
-          _userName = user.name;
-        });
-        print('User name loaded from local: ${user.name}');
-      } else {
-        // PERBAIKAN: Jika tidak ada user lokal, coba ambil dari server
-        final result = await _authRepository.getProfile();
-        if (result.isSuccess && result.user != null && mounted) {
-          setState(() {
-            _userName = result.user!.name;
-          });
-          print('User name loaded from server: ${result.user!.name}');
-        } else {
-          print('Failed to load user data: ${result.message}');
-        }
-      }
-    } catch (e) {
-      print('Error loading user data: $e');
-    }
-  }
-
-/*************  ✨ Windsurf Command ⭐  *************/
-  /// Load today's attendance data
+  /// Loads today's attendance data from the repository.
   ///
-  /// This function calls the attendance repository to get the attendance
-  /// data for today, and then updates the state with the result.
-  ///
+  /// Updates the [_todayAttendance] state if the data is loaded successfully.
   /// Throws an exception if there is an error loading the data.
-/*******  ae3d85b5-b8d1-43ce-b759-a4470469b9e0  *******/ Future<void>
-      _loadTodayAttendance() async {
+  Future<void> _loadTodayAttendance() async {
     try {
+      print('DEBUG HOME: Loading today attendance...');
       final result = await _attendanceRepository.getTodayAttendance();
-      if (mounted && result.isSuccess) {
+
+      if (result.isSuccess && mounted) {
         setState(() {
           _todayAttendance = result.attendance;
         });
+        print(
+            'DEBUG HOME: Attendance loaded - hasCheckedIn: ${_todayAttendance?.checkInTime != null}, hasCheckedOut: ${_todayAttendance?.checkOutTime != null}');
+      } else {
+        print('DEBUG HOME: Failed to load attendance: ${result.message}');
+        if (mounted) {
+          setState(() {
+            _todayAttendance = null;
+          });
+        }
       }
     } catch (e) {
-      print('Error loading today attendance: $e');
+      print('DEBUG HOME: Error loading today attendance: $e');
+      if (mounted) {
+        setState(() {
+          _todayAttendance = null;
+        });
+      }
     }
   }
 
   Future<void> _loadStats() async {
     try {
       final result = await _attendanceRepository.getStats();
-      if (mounted && result.isSuccess) {
+      if (result.isSuccess && mounted) {
         setState(() {
           _stats = result.stats;
         });
       }
     } catch (e) {
-      print('Error loading stats: $e');
+      print('DEBUG HOME: Error loading stats: $e');
+      // Silently handle error
     }
+  }
+
+  void _navigateToLogin() {
+    Navigator.pushAndRemoveUntil(
+      context,
+      MaterialPageRoute(builder: (context) => const LoginScreen()),
+      (route) => false,
+    );
   }
 
   Future<void> _handleCheckIn() async {
-    try {
-      final location = await LocationHelperLokin.getCurrentLocation();
-
-      if (location != null) {
-        setState(() {
-          _isLoading = true;
-        });
-
-        final result = await _attendanceRepository.checkIn(
-          latitude: location.latitude,
-          longitude: location.longitude,
-          address: location.address,
-        );
-
-        if (mounted) {
-          if (result.isSuccess) {
-            _showSnackBar(result.message, isError: false);
-            await _loadTodayAttendance();
-            await _loadStats();
-          } else {
-            _showSnackBar(result.message, isError: true);
-          }
-        }
-      }
-    } catch (e) {
-      if (mounted) {
-        _showSnackBar('Terjadi kesalahan: $e', isError: true);
-      }
-    } finally {
-      if (mounted) {
-        setState(() {
-          _isLoading = false;
-        });
-      }
-    }
+    await _handleAttendanceWithMap(isCheckIn: true);
   }
 
   Future<void> _handleCheckOut() async {
+    await _handleAttendanceWithMap(isCheckIn: false);
+  }
+
+  Future<void> _handleAttendanceWithMap({required bool isCheckIn}) async {
+    if (_isLoading) return;
     try {
-      final location = await LocationHelperLokin.getCurrentLocation();
-
-      if (location != null) {
-        setState(() {
-          _isLoading = true;
-        });
-
-        final result = await _attendanceRepository.checkOut(
-          latitude: location.latitude,
-          longitude: location.longitude,
-          address: location.address,
-        );
-
-        if (mounted) {
-          if (result.isSuccess) {
-            _showSnackBar(result.message, isError: false);
-            await _loadTodayAttendance();
-            await _loadStats();
-          } else {
-            _showSnackBar(result.message, isError: true);
-          }
-        }
-      }
+      print(
+          'DEBUG: Opening location selector dialog for ${isCheckIn ? 'check-in' : 'check-out'}');
+      await showDialog(
+        context: context,
+        barrierDismissible: false,
+        builder: (context) => AttendanceLocationSelector(
+          title: isCheckIn
+              ? 'Pilih Lokasi untuk Absen Masuk'
+              : 'Pilih Lokasi untuk Absen Keluar',
+          onLocationConfirmed: (lat, lng, address) async {
+            print(
+                'DEBUG: Location confirmed - lat: $lat, lng: $lng, address: $address');
+            await _processAttendance(
+              isCheckIn: isCheckIn,
+              latitude: lat,
+              longitude: lng,
+              address: address,
+            );
+          },
+        ),
+      );
     } catch (e) {
-      if (mounted) {
-        _showSnackBar('Terjadi kesalahan: $e', isError: true);
+      print('DEBUG: Error in _handleAttendanceWithMap: $e');
+      _showErrorSnackBar('Terjadi kesalahan: $e');
+    }
+  }
+
+  Future<void> _processAttendance({
+    required bool isCheckIn,
+    required double latitude,
+    required double longitude,
+    required String address,
+  }) async {
+    if (_isLoading) return;
+    print(
+        'DEBUG: Starting _processAttendance for ${isCheckIn ? 'check-in' : 'check-out'}');
+    setState(() {
+      _isLoading = true;
+    });
+    try {
+      final confirm = await _showConfirmationDialog(
+        title: isCheckIn ? 'Konfirmasi Absen Masuk' : 'Konfirmasi Absen Keluar',
+        message:
+            'Lokasi: $address\n\nApakah Anda yakin ingin ${isCheckIn ? 'absen masuk' : 'absen keluar'}?',
+      );
+      if (!confirm) {
+        print('DEBUG: User cancelled confirmation');
+        setState(() {
+          _isLoading = false;
+        });
+        return;
       }
-    } finally {
+      print('DEBUG: User confirmed, calling API...');
+      final result = isCheckIn
+          ? await _attendanceRepository.checkIn(
+              latitude: latitude,
+              longitude: longitude,
+              address: address,
+            )
+          : await _attendanceRepository.checkOut(
+              latitude: latitude,
+              longitude: longitude,
+              address: address,
+            );
+      print(
+          'DEBUG: API result - success: ${result.isSuccess}, message: ${result.message}');
       if (mounted) {
         setState(() {
           _isLoading = false;
         });
+        if (result.isSuccess) {
+          _showSuccessDialog(result.message);
+
+          print('DEBUG: Attendance success, reloading data...');
+
+          // PERBAIKAN: Delay lebih lama untuk memastikan data tersimpan di server
+          await Future.delayed(const Duration(milliseconds: 2000)); // 2 detik
+          await _forceReloadData();
+        } else {
+          print('DEBUG: Attendance failed: ${result.message}');
+          _showErrorSnackBar(result.message);
+        }
+      }
+    } catch (e) {
+      print('DEBUG: Exception in _processAttendance: $e');
+      if (mounted) {
+        setState(() {
+          _isLoading = false;
+        });
+        _showErrorSnackBar('Terjadi kesalahan: $e');
       }
     }
   }
 
-  void _showSnackBar(String message, {bool isError = false}) {
+  // PERBAIKAN: Method baru untuk force reload data dengan debug yang lebih baik
+  Future<void> _forceReloadData() async {
+    print('DEBUG HOME: Force reloading data...');
+
+    setState(() {
+      _todayAttendance = null;
+      _stats = null;
+    });
+
+    await Future.delayed(const Duration(milliseconds: 500));
+
+    // PERBAIKAN: Gunakan method force refresh yang baru
+    final attendanceResult =
+        await _attendanceRepository.forceRefreshTodayAttendance();
+    if (attendanceResult.isSuccess && mounted) {
+      setState(() {
+        _todayAttendance = attendanceResult.attendance;
+      });
+      print(
+          'DEBUG HOME: Attendance refreshed - hasCheckedIn: ${_todayAttendance?.checkInTime != null}');
+    }
+
+    // Load stats
+    await _loadStats();
+
+    print('DEBUG HOME: Data reload completed');
+  }
+
+  Future<bool> _showConfirmationDialog({
+    required String title,
+    required String message,
+  }) async {
+    return await showDialog<bool>(
+          context: context,
+          builder: (context) => AlertDialog(
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(16),
+            ),
+            title: Text(
+              title,
+              style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                    fontWeight: FontWeight.bold,
+                  ),
+            ),
+            content: Text(message),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.of(context).pop(false),
+                child: const Text(
+                  'Batal',
+                  style: TextStyle(color: AppColorsLokin.textSecondary),
+                ),
+              ),
+              ElevatedButton(
+                onPressed: () => Navigator.of(context).pop(true),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: AppColorsLokin.primary,
+                  foregroundColor: Colors.white,
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                ),
+                child: const Text('Ya, Yakin'),
+              ),
+            ],
+          ),
+        ) ??
+        false;
+  }
+
+  void _showSuccessDialog(String message) {
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(16),
+        ),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Container(
+              padding: const EdgeInsets.all(16),
+              decoration: BoxDecoration(
+                color: AppColorsLokin.success.withOpacity(0.1),
+                shape: BoxShape.circle,
+              ),
+              child: const Icon(
+                Icons.check_circle,
+                color: AppColorsLokin.success,
+                size: 48,
+              ),
+            ),
+            const SizedBox(height: 16),
+            Text(
+              'Berhasil!',
+              style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                    fontWeight: FontWeight.bold,
+                    color: AppColorsLokin.success,
+                  ),
+            ),
+            const SizedBox(height: 8),
+            Text(
+              message,
+              textAlign: TextAlign.center,
+              style: Theme.of(context).textTheme.bodyMedium,
+            ),
+            const SizedBox(height: 24),
+            SizedBox(
+              width: double.infinity,
+              child: ElevatedButton(
+                onPressed: () => Navigator.of(context).pop(),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: AppColorsLokin.success,
+                  foregroundColor: Colors.white,
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                ),
+                child: const Text('OK'),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  void _showErrorSnackBar(String message) {
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
         content: Text(message),
-        backgroundColor:
-            isError ? AppColorsLokin.error : AppColorsLokin.success,
+        backgroundColor: AppColorsLokin.error,
         behavior: SnackBarBehavior.floating,
+        margin: const EdgeInsets.all(16),
         shape: RoundedRectangleBorder(
           borderRadius: BorderRadius.circular(8),
         ),
@@ -221,67 +352,65 @@ class _HomeScreenState extends State<HomeScreen>
           end: Alignment.bottomRight,
           colors: [AppColorsLokin.primary, AppColorsLokin.secondary],
         ),
-        borderRadius: BorderRadius.only(
+        borderRadius: const BorderRadius.only(
           bottomLeft: Radius.circular(30),
           bottomRight: Radius.circular(30),
         ),
       ),
       child: SafeArea(
         child: Padding(
-          padding: const EdgeInsets.all(24),
+          padding: const EdgeInsets.fromLTRB(20, 20, 20, 30),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          DateHelperLokin.getGreeting(),
-                          style:
-                              Theme.of(context).textTheme.bodyMedium?.copyWith(
-                                    color: Colors.white70,
-                                  ),
-                        ),
-                        const SizedBox(height: 4),
-                        Text(
-                          // PERBAIKAN: Logika yang lebih robust untuk menampilkan nama user
-                          _userName.isNotEmpty ? _userName : 'User',
-                          style: Theme.of(context)
-                              .textTheme
-                              .headlineSmall
-                              ?.copyWith(
-                                color: Colors.white,
-                                fontWeight: FontWeight.bold,
-                              ),
-                        ),
-                      ],
-                    ),
+                  Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        'Selamat Sore',
+                        style: Theme.of(context).textTheme.bodyLarge?.copyWith(
+                              color: Colors.white.withOpacity(0.9),
+                            ),
+                      ),
+                      Text(
+                        _currentUser?.name ?? 'nugie',
+                        style:
+                            Theme.of(context).textTheme.headlineSmall?.copyWith(
+                                  color: Colors.white,
+                                  fontWeight: FontWeight.bold,
+                                ),
+                      ),
+                    ],
                   ),
-                  CircleAvatar(
-                    radius: 24,
-                    backgroundColor: Colors.white.withOpacity(0.2),
+                  const Spacer(),
+                  Container(
+                    padding: const EdgeInsets.all(8),
+                    decoration: BoxDecoration(
+                      color: Colors.white.withOpacity(0.2),
+                      borderRadius: BorderRadius.circular(12),
+                    ),
                     child: const Icon(
                       Icons.person,
                       color: Colors.white,
-                      size: 28,
+                      size: 24,
                     ),
                   ),
                 ],
               ),
-              const SizedBox(height: 16),
+              const SizedBox(height: 20),
               Container(
-                padding:
-                    const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 16,
+                  vertical: 8,
+                ),
                 decoration: BoxDecoration(
                   color: Colors.white.withOpacity(0.2),
                   borderRadius: BorderRadius.circular(20),
                 ),
                 child: Text(
-                  DateHelperLokin.formatDateWithDay(DateTime.now()),
+                  DateHelperLokin.formatDateIndonesian(DateTime.now()),
                   style: Theme.of(context).textTheme.bodyMedium?.copyWith(
                         color: Colors.white,
                         fontWeight: FontWeight.w500,
@@ -296,30 +425,11 @@ class _HomeScreenState extends State<HomeScreen>
   }
 
   Widget _buildAttendanceStatus() {
-    if (_todayAttendance == null) {
-      return Container(
-        margin: const EdgeInsets.all(20),
-        padding: const EdgeInsets.all(20),
-        decoration: BoxDecoration(
-          color: AppColorsLokin.surface.withOpacity(0.1),
-          borderRadius: BorderRadius.circular(16),
-          border: Border.all(color: AppColorsLokin.border),
-        ),
-        child: const Row(
-          children: [
-            Icon(Icons.info_outline, color: AppColorsLokin.textSecondary),
-            SizedBox(width: 12),
-            Expanded(
-              child: Text(
-                'Belum ada data absensi hari ini',
-                style: TextStyle(color: AppColorsLokin.textSecondary),
-              ),
-            ),
-          ],
-        ),
-      );
-    }
-
+    final hasCheckedIn = _todayAttendance?.checkInTime != null;
+    final hasCheckedOut = _todayAttendance?.checkOutTime != null;
+    final isPermission = _todayAttendance?.status == 'izin';
+    print(
+        'DEBUG: Building attendance status - hasCheckedIn: $hasCheckedIn, hasCheckedOut: $hasCheckedOut, isPermission: $isPermission');
     return Container(
       margin: const EdgeInsets.all(20),
       padding: const EdgeInsets.all(20),
@@ -338,156 +448,184 @@ class _HomeScreenState extends State<HomeScreen>
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Text(
-            'Status Absen Hari Ini',
+            'Status Absensi Hari Ini',
             style: Theme.of(context).textTheme.titleLarge?.copyWith(
                   fontWeight: FontWeight.bold,
                   color: AppColorsLokin.textPrimary,
                 ),
           ),
           const SizedBox(height: 16),
+          if (isPermission) ...[
+            _buildStatusItem(
+              icon: Icons.assignment_outlined,
+              title: 'Izin',
+              subtitle: _todayAttendance?.alasanIzin ?? 'Sedang izin',
+              color: AppColorsLokin.warning,
+            ),
+          ] else ...[
+            _buildStatusItem(
+              icon: hasCheckedIn
+                  ? Icons.check_circle
+                  : Icons.radio_button_unchecked,
+              title: 'Absen Masuk',
+              subtitle: hasCheckedIn
+                  ? 'Pukul ${_todayAttendance?.checkInTime ?? '-'}'
+                  : 'Belum absen masuk',
+              color: hasCheckedIn
+                  ? AppColorsLokin.success
+                  : AppColorsLokin.textSecondary,
+            ),
+            const SizedBox(height: 12),
+            _buildStatusItem(
+              icon: hasCheckedOut
+                  ? Icons.check_circle
+                  : Icons.radio_button_unchecked,
+              title: 'Absen Keluar',
+              subtitle: hasCheckedOut
+                  ? 'Pukul ${_todayAttendance?.checkOutTime ?? '-'}'
+                  : 'Belum absen keluar',
+              color: hasCheckedOut
+                  ? AppColorsLokin.success
+                  : AppColorsLokin.textSecondary,
+            ),
+          ],
+        ],
+      ),
+    );
+  }
 
-          // Check In Status
-          if (_todayAttendance!.checkInTime != null) ...[
-            Container(
-              width: double.infinity,
-              padding: const EdgeInsets.all(16),
-              decoration: BoxDecoration(
-                color: AppColorsLokin.success.withOpacity(0.1),
-                borderRadius: BorderRadius.circular(12),
-                border:
-                    Border.all(color: AppColorsLokin.success.withOpacity(0.3)),
+  Widget _buildStatusItem({
+    required IconData icon,
+    required String title,
+    required String subtitle,
+    required Color color,
+  }) {
+    return Row(
+      children: [
+        Container(
+          padding: const EdgeInsets.all(8),
+          decoration: BoxDecoration(
+            color: color.withOpacity(0.1),
+            borderRadius: BorderRadius.circular(8),
+          ),
+          child: Icon(icon, color: color, size: 20),
+        ),
+        const SizedBox(width: 12),
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                title,
+                style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                      fontWeight: FontWeight.w600,
+                      color: AppColorsLokin.textPrimary,
+                    ),
               ),
-              child: Row(
-                children: [
-                  Container(
-                    padding: const EdgeInsets.all(8),
-                    decoration: const BoxDecoration(
+              Text(
+                subtitle,
+                style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                      color: AppColorsLokin.textSecondary,
+                    ),
+              ),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildActionButtons() {
+    final hasCheckedIn = _todayAttendance?.checkInTime != null;
+    final hasCheckedOut = _todayAttendance?.checkOutTime != null;
+    final isPermission = _todayAttendance?.status == 'izin';
+    print(
+        'DEBUG: Building action buttons - hasCheckedIn: $hasCheckedIn, hasCheckedOut: $hasCheckedOut, isPermission: $isPermission, isLoading: $_isLoading');
+    return Container(
+      margin: const EdgeInsets.symmetric(horizontal: 20),
+      child: Column(
+        children: [
+          if (!isPermission) ...[
+            if (!hasCheckedIn) ...[
+              SizedBox(
+                width: double.infinity,
+                child: _isLoading
+                    ? const LoadingWidgetLokin()
+                    : ElevatedButton.icon(
+                        onPressed:
+                            _handleCheckIn, // PERBAIKAN: Handler ditambahkan
+                        icon: const Icon(Icons.login),
+                        label: const Text('Absen Masuk'),
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: AppColorsLokin.success,
+                          foregroundColor: Colors.white,
+                          padding: const EdgeInsets.symmetric(vertical: 16),
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(12),
+                          ),
+                        ),
+                      ),
+              ),
+            ] else if (!hasCheckedOut) ...[
+              SizedBox(
+                width: double.infinity,
+                child: _isLoading
+                    ? const LoadingWidgetLokin()
+                    : ElevatedButton.icon(
+                        onPressed:
+                            _handleCheckOut, // PERBAIKAN: Handler ditambahkan
+                        icon: const Icon(Icons.logout),
+                        label: const Text('Absen Keluar'),
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: AppColorsLokin.primary,
+                          foregroundColor: Colors.white,
+                          padding: const EdgeInsets.symmetric(vertical: 16),
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(12),
+                          ),
+                        ),
+                      ),
+              ),
+            ] else ...[
+              Container(
+                width: double.infinity,
+                padding: const EdgeInsets.all(16),
+                decoration: BoxDecoration(
+                  color: AppColorsLokin.success.withOpacity(0.1),
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(
+                    color: AppColorsLokin.success.withOpacity(0.3),
+                  ),
+                ),
+                child: Row(
+                  children: [
+                    Icon(
+                      Icons.check_circle,
                       color: AppColorsLokin.success,
-                      shape: BoxShape.circle,
+                      size: 24,
                     ),
-                    child: const Icon(
-                      Icons.login,
-                      color: Colors.white,
-                      size: 16,
-                    ),
-                  ),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          'Absen Masuk',
-                          style:
-                              Theme.of(context).textTheme.titleMedium?.copyWith(
-                                    color: AppColorsLokin.success,
-                                    fontWeight: FontWeight.w600,
-                                  ),
-                        ),
-                        Text(
-                          _todayAttendance!.checkInTime!,
-                          style:
-                              Theme.of(context).textTheme.bodyMedium?.copyWith(
-                                    color: AppColorsLokin.success,
-                                    fontWeight: FontWeight.w500,
-                                  ),
-                        ),
-                        if (_todayAttendance!.checkInAddress?.isNotEmpty ==
-                            true)
-                          Text(
-                            _todayAttendance!.checkInAddress!,
-                            style:
-                                Theme.of(context).textTheme.bodySmall?.copyWith(
-                                      color: AppColorsLokin.textSecondary,
-                                    ),
-                            maxLines: 2,
-                            overflow: TextOverflow.ellipsis,
+                    const SizedBox(width: 12),
+                    Text(
+                      'Absensi Hari Ini Sudah Lengkap',
+                      style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                            color: AppColorsLokin.success,
+                            fontWeight: FontWeight.w600,
                           ),
-                      ],
                     ),
-                  ),
-                ],
+                  ],
+                ),
               ),
-            ),
-            const SizedBox(height: 12),
-          ],
-
-          // Check Out Status
-          if (_todayAttendance!.checkOutTime != null) ...[
-            Container(
-              width: double.infinity,
-              padding: const EdgeInsets.all(16),
-              decoration: BoxDecoration(
-                color: AppColorsLokin.primary.withOpacity(0.1),
-                borderRadius: BorderRadius.circular(12),
-                border:
-                    Border.all(color: AppColorsLokin.primary.withOpacity(0.3)),
-              ),
-              child: Row(
-                children: [
-                  Container(
-                    padding: const EdgeInsets.all(8),
-                    decoration: const BoxDecoration(
-                      color: AppColorsLokin.primary,
-                      shape: BoxShape.circle,
-                    ),
-                    child: const Icon(
-                      Icons.logout,
-                      color: Colors.white,
-                      size: 16,
-                    ),
-                  ),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          'Absen Keluar',
-                          style:
-                              Theme.of(context).textTheme.titleMedium?.copyWith(
-                                    color: AppColorsLokin.primary,
-                                    fontWeight: FontWeight.w600,
-                                  ),
-                        ),
-                        Text(
-                          _todayAttendance!.checkOutTime!,
-                          style:
-                              Theme.of(context).textTheme.bodyMedium?.copyWith(
-                                    color: AppColorsLokin.primary,
-                                    fontWeight: FontWeight.w500,
-                                  ),
-                        ),
-                        if (_todayAttendance!.checkOutAddress?.isNotEmpty ==
-                            true)
-                          Text(
-                            _todayAttendance!.checkOutAddress!,
-                            style:
-                                Theme.of(context).textTheme.bodySmall?.copyWith(
-                                      color: AppColorsLokin.textSecondary,
-                                    ),
-                            maxLines: 2,
-                            overflow: TextOverflow.ellipsis,
-                          ),
-                      ],
-                    ),
-                  ),
-                ],
-              ),
-            ),
-            const SizedBox(height: 12),
-          ],
-
-          // Permission Status
-          if (_todayAttendance!.status == 'izin') ...[
+            ],
+          ] else ...[
             Container(
               width: double.infinity,
               padding: const EdgeInsets.all(16),
               decoration: BoxDecoration(
                 color: AppColorsLokin.warning.withOpacity(0.1),
                 borderRadius: BorderRadius.circular(12),
-                border:
-                    Border.all(color: AppColorsLokin.warning.withOpacity(0.3)),
+                border: Border.all(
+                  color: AppColorsLokin.warning.withOpacity(0.3),
+                ),
               ),
               child: Row(
                 children: [
@@ -523,98 +661,13 @@ class _HomeScreenState extends State<HomeScreen>
                 ],
               ),
             ),
-            const SizedBox(height: 12),
           ],
         ],
       ),
     );
   }
 
-  Widget _buildActionButtons() {
-    final canCheckIn = _todayAttendance?.checkInTime == null &&
-        _todayAttendance?.status != 'izin';
-    final canCheckOut = _todayAttendance?.checkInTime != null &&
-        _todayAttendance?.checkOutTime == null &&
-        _todayAttendance?.status != 'izin';
-
-    return Container(
-      margin: const EdgeInsets.symmetric(horizontal: 20),
-      child: Row(
-        children: [
-          Expanded(
-            child: _buildActionButton(
-              icon: Icons.login,
-              title: 'Absen Masuk',
-              color: AppColorsLokin.success,
-              isEnabled: canCheckIn && !_isLoading,
-              onTap: _handleCheckIn,
-            ),
-          ),
-          const SizedBox(width: 16),
-          Expanded(
-            child: _buildActionButton(
-              icon: Icons.logout,
-              title: 'Absen Keluar',
-              color: AppColorsLokin.primary,
-              isEnabled: canCheckOut && !_isLoading,
-              onTap: _handleCheckOut,
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildActionButton({
-    required IconData icon,
-    required String title,
-    required Color color,
-    required bool isEnabled,
-    required VoidCallback? onTap,
-  }) {
-    return GestureDetector(
-      onTap: isEnabled ? onTap : null,
-      child: Container(
-        padding: const EdgeInsets.symmetric(vertical: 16),
-        decoration: BoxDecoration(
-          color: isEnabled ? color : AppColorsLokin.border,
-          borderRadius: BorderRadius.circular(12),
-          boxShadow: isEnabled
-              ? [
-                  BoxShadow(
-                    color: color.withOpacity(0.3),
-                    blurRadius: 8,
-                    offset: const Offset(0, 2),
-                  ),
-                ]
-              : null,
-        ),
-        child: Column(
-          children: [
-            Icon(
-              icon,
-              color: Colors.white,
-              size: 24,
-            ),
-            const SizedBox(height: 8),
-            Text(
-              title,
-              style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                    color: Colors.white,
-                    fontWeight: FontWeight.w500,
-                  ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  Widget _buildStatsCard() {
-    if (_stats == null) {
-      return const SizedBox.shrink();
-    }
-
+  Widget _buildNoDataState() {
     return Container(
       margin: const EdgeInsets.all(20),
       padding: const EdgeInsets.all(20),
@@ -630,6 +683,40 @@ class _HomeScreenState extends State<HomeScreen>
         ],
       ),
       child: Column(
+        children: [
+          Icon(
+            Icons.info_outline,
+            size: 48,
+            color: AppColorsLokin.textSecondary,
+          ),
+          const SizedBox(height: 16),
+          Text(
+            'Belum ada data absensi hari ini',
+            style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                  color: AppColorsLokin.textSecondary,
+                  fontWeight: FontWeight.w600,
+                ),
+          ),
+          const SizedBox(height: 8),
+          Text(
+            'Silakan lakukan absen masuk untuk memulai',
+            style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                  color: AppColorsLokin.textSecondary,
+                ),
+            textAlign: TextAlign.center,
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildStats() {
+    if (_stats == null) {
+      return const SizedBox.shrink();
+    }
+    return Container(
+      margin: const EdgeInsets.fromLTRB(20, 0, 20, 20),
+      child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Row(
@@ -642,54 +729,42 @@ class _HomeScreenState extends State<HomeScreen>
                       color: AppColorsLokin.textPrimary,
                     ),
               ),
-              Container(
-                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                decoration: BoxDecoration(
-                  color: AppColorsLokin.primary.withOpacity(0.1),
-                  borderRadius: BorderRadius.circular(8),
-                ),
-                child: Text(
-                  'Bulan Ini',
-                  style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                        color: AppColorsLokin.primary,
-                        fontWeight: FontWeight.w600,
-                      ),
-                ),
+              Text(
+                'Bulan Ini',
+                style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                      color: AppColorsLokin.error,
+                      fontWeight: FontWeight.w600,
+                    ),
               ),
             ],
           ),
           const SizedBox(height: 16),
-
-          // PERBAIKAN: Fixed consistent layout for statistics cards
           Row(
             children: [
               Expanded(
-                flex: 1,
-                child: _buildStatItem(
-                  title: 'Total\nAbsen',
+                child: _buildStatCard(
+                  icon: Icons.calendar_today,
                   value: '${_stats!.totalAbsen}',
-                  color: AppColorsLokin.primary,
-                  icon: Icons.calendar_month,
+                  label: 'Total\nAbsen',
+                  color: AppColorsLokin.error,
                 ),
               ),
               const SizedBox(width: 12),
               Expanded(
-                flex: 1,
-                child: _buildStatItem(
-                  title: 'Masuk',
-                  value: '${_stats!.totalMasuk}',
-                  color: AppColorsLokin.success,
+                child: _buildStatCard(
                   icon: Icons.check_circle,
+                  value: '${_stats!.totalMasuk}',
+                  label: 'Masuk',
+                  color: AppColorsLokin.success,
                 ),
               ),
               const SizedBox(width: 12),
               Expanded(
-                flex: 1,
-                child: _buildStatItem(
-                  title: 'Izin',
-                  value: '${_stats!.totalIzin}',
-                  color: AppColorsLokin.warning,
+                child: _buildStatCard(
                   icon: Icons.assignment,
+                  value: '${_stats!.totalIzin}',
+                  label: 'Izin',
+                  color: AppColorsLokin.warning,
                 ),
               ),
             ],
@@ -699,11 +774,11 @@ class _HomeScreenState extends State<HomeScreen>
     );
   }
 
-  Widget _buildStatItem({
-    required String title,
-    required String value,
-    required Color color,
+  Widget _buildStatCard({
     required IconData icon,
+    required String value,
+    required String label,
+    required Color color,
   }) {
     return Container(
       // PERBAIKAN: Fixed height dan padding untuk konsistensi
@@ -725,18 +800,18 @@ class _HomeScreenState extends State<HomeScreen>
           const SizedBox(height: 6),
           Text(
             value,
-            style: Theme.of(context).textTheme.titleLarge?.copyWith(
+            style: Theme.of(context).textTheme.headlineMedium?.copyWith(
                   fontWeight: FontWeight.bold,
                   color: color,
                   fontSize: 18,
                 ),
           ),
-          const SizedBox(height: 2),
+          const SizedBox(height: 4),
           Text(
-            title,
+            label,
             style: Theme.of(context).textTheme.bodySmall?.copyWith(
                   color: AppColorsLokin.textSecondary,
-                  fontSize: 8,
+                  fontWeight: FontWeight.w500,
                 ),
             textAlign: TextAlign.center,
             maxLines: 2,
@@ -750,26 +825,26 @@ class _HomeScreenState extends State<HomeScreen>
   @override
   Widget build(BuildContext context) {
     super.build(context);
-
     return Scaffold(
       backgroundColor: AppColorsLokin.background,
-      body: _isLoading
-          ? const Center(child: LoadingWidgetLokin())
-          : RefreshIndicator(
-              onRefresh: _initializeData,
-              child: SingleChildScrollView(
-                physics: const AlwaysScrollableScrollPhysics(),
-                child: Column(
-                  children: [
-                    _buildHeader(),
-                    _buildAttendanceStatus(),
-                    _buildActionButtons(),
-                    _buildStatsCard(),
-                    const SizedBox(height: 20),
-                  ],
-                ),
-              ),
-            ),
+      body: RefreshIndicator(
+        onRefresh: () async {
+          await Future.wait([_loadTodayAttendance(), _loadStats()]);
+        },
+        child: SingleChildScrollView(
+          physics: const AlwaysScrollableScrollPhysics(),
+          child: Column(
+            children: [
+              _buildHeader(),
+              _buildAttendanceStatus(),
+              _buildActionButtons(),
+              const SizedBox(height: 20),
+              _buildStats(),
+              const SizedBox(height: 20),
+            ],
+          ),
+        ),
+      ),
     );
   }
 }
