@@ -234,6 +234,10 @@ class _PermissionScreenState extends State<PermissionScreen>
           end: Alignment.bottomRight,
           colors: [AppColorsLokin.warning, AppColorsLokin.secondary],
         ),
+        borderRadius: BorderRadius.only(
+          bottomLeft: Radius.circular(30),
+          bottomRight: Radius.circular(30),
+        ),
       ),
       child: SafeArea(
         child: Padding(

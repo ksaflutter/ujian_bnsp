@@ -73,7 +73,7 @@ class DateHelperLokin {
   }
 
   // Format date for display (dd/MM/yyyy)
-  static String formatDate(DateTime date) {
+  static String formatDate(DateTime date, {required String format}) {
     return dateFormatter.format(date);
   }
 
@@ -108,7 +108,7 @@ class DateHelperLokin {
       return dayDateFormatter.format(date);
     } catch (e) {
       // Fallback to simple format if locale fails
-      return '${_getDayName(date.weekday)}, ${formatDate(date)}';
+      return '${_getDayName(date.weekday)}, ${formatDate(date, format: AppConstantsLokin.dateFormat)}';
     }
   }
 
@@ -152,7 +152,7 @@ class DateHelperLokin {
 
   // Get current date as formatted string
   static String getCurrentDate() {
-    return formatDate(DateTime.now());
+    return formatDate(DateTime.now(), format: AppConstantsLokin.dateFormat);
   }
 
   // Get current datetime as formatted string

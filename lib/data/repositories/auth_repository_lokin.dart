@@ -383,6 +383,8 @@ class AuthRepository {
   }
 
   Future isSessionValid() async {}
+
+  Future getCurrentUser() async {}
 }
 
 /// Result class for authentication operations

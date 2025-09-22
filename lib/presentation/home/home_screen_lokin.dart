@@ -221,6 +221,10 @@ class _HomeScreenState extends State<HomeScreen>
           end: Alignment.bottomRight,
           colors: [AppColorsLokin.primary, AppColorsLokin.secondary],
         ),
+        borderRadius: BorderRadius.only(
+          bottomLeft: Radius.circular(30),
+          bottomRight: Radius.circular(30),
+        ),
       ),
       child: SafeArea(
         child: Padding(

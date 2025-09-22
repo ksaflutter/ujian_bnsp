@@ -271,7 +271,7 @@ class AttendanceRepository {
       print(
           'DEBUG FORCE REFRESH: Today date formatted for API: $todayFormatted');
       print(
-          'DEBUG FORCE REFRESH: Current date: ${DateHelperLokin.formatDate(today)}');
+          'DEBUG FORCE REFRESH: Current date: ${DateHelperLokin.formatDate(today, format: "yyyy-MM-dd")}');
 
       // Clear any cache if exists
       await Future.delayed(const Duration(milliseconds: 200));

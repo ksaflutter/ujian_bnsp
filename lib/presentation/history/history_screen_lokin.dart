@@ -53,8 +53,10 @@ class _HistoryScreenState extends State<HistoryScreen>
       if (_selectedFilter != 'Semua') {
         final dates = _getDateRange(_selectedFilter);
         if (dates != null) {
-          startDate = DateHelperLokin.formatDate(dates['start']!);
-          endDate = DateHelperLokin.formatDate(dates['end']!);
+          startDate =
+              DateHelperLokin.formatDate(dates['start']!, format: 'yyyy-MM-dd');
+          endDate =
+              DateHelperLokin.formatDate(dates['end']!, format: 'yyyy-MM-dd');
         }
       }
 
@@ -62,8 +64,9 @@ class _HistoryScreenState extends State<HistoryScreen>
       if (_selectedFilter == 'Custom' &&
           _startDate != null &&
           _endDate != null) {
-        startDate = DateHelperLokin.formatDate(_startDate!);
-        endDate = DateHelperLokin.formatDate(_endDate!);
+        startDate =
+            DateHelperLokin.formatDate(_startDate!, format: 'yyyy-MM-dd');
+        endDate = DateHelperLokin.formatDate(_endDate!, format: 'yyyy-MM-dd');
       }
 
       final result = await _attendanceRepository.getAttendanceHistory(
@@ -235,39 +238,39 @@ class _HistoryScreenState extends State<HistoryScreen>
 
   Widget _buildHeader() {
     return Container(
-      padding: const EdgeInsets.all(20),
-      decoration: BoxDecoration(
+      width: double.infinity,
+      decoration: const BoxDecoration(
         gradient: LinearGradient(
           begin: Alignment.topLeft,
           end: Alignment.bottomRight,
-          colors: [
-            AppColorsLokin.primary,
-            AppColorsLokin.primary.withOpacity(0.8)
-          ],
+          colors: [AppColorsLokin.primary, AppColorsLokin.secondary],
         ),
         borderRadius: const BorderRadius.only(
-          bottomLeft: Radius.circular(24),
-          bottomRight: Radius.circular(24),
+          bottomLeft: Radius.circular(30),
+          bottomRight: Radius.circular(30),
         ),
       ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(
-            'Riwayat Absensi',
-            style: Theme.of(context).textTheme.headlineMedium?.copyWith(
-                  color: Colors.white,
-                  fontWeight: FontWeight.bold,
-                ),
-          ),
-          const SizedBox(height: 8),
-          Text(
-            'Lihat riwayat kehadiran Anda',
-            style: Theme.of(context).textTheme.bodyLarge?.copyWith(
-                  color: Colors.white.withOpacity(0.9),
-                ),
-          ),
-        ],
+      child: Padding(
+        padding: const EdgeInsets.all(24),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              'Riwayat Absensi',
+              style: Theme.of(context).textTheme.headlineMedium?.copyWith(
+                    color: Colors.white,
+                    fontWeight: FontWeight.bold,
+                  ),
+            ),
+            const SizedBox(height: 8),
+            Text(
+              'Lihat riwayat kehadiran Anda',
+              style: Theme.of(context).textTheme.bodyLarge?.copyWith(
+                    color: Colors.white.withOpacity(0.9),
+                  ),
+            ),
+          ],
+        ),
       ),
     );
   }
@@ -365,7 +368,7 @@ class _HistoryScreenState extends State<HistoryScreen>
                   ),
                   const SizedBox(width: 8),
                   Text(
-                    '${DateHelperLokin.formatDate(_startDate!)} - ${DateHelperLokin.formatDate(_endDate!)}',
+                    '${DateHelperLokin.formatDate(_startDate!, format: 'dd MMM yyyy')} - ${DateHelperLokin.formatDate(_endDate!, format: 'dd MMM yyyy')}',
                     style: Theme.of(context).textTheme.bodyMedium?.copyWith(
                           color: AppColorsLokin.primary,
                           fontWeight: FontWeight.w600,

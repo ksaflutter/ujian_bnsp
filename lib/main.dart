@@ -1,31 +1,24 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import 'package:intl/date_symbol_data_local.dart';
+import 'package:lokinid_app/presentation/splash/splash_screen_lokin.dart';
+import 'package:provider/provider.dart';
 
-import 'data/repositories/auth_repository_lokin.dart';
 import 'data/services/preference_service_lokin.dart';
-import 'lokin_app.dart';
-
-// Import untuk debugging (bisa dihapus di production)
-// import 'network_debugger.dart';
+import 'theme/app_theme_lokin.dart';
+import 'theme/theme_provider_lokin.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
 
-  // Initialize locale data untuk DateFormatting
-  await initializeDateFormatting('id_ID', null);
-  await initializeDateFormatting('en_US', null);
-
   // Initialize services
-  await _initializeServices();
+  await PreferenceService().init();
 
   // Set system UI overlay style
   SystemChrome.setSystemUIOverlayStyle(
     const SystemUiOverlayStyle(
       statusBarColor: Colors.transparent,
       statusBarIconBrightness: Brightness.dark,
-      systemNavigationBarColor: Colors.white,
-      systemNavigationBarIconBrightness: Brightness.dark,
+      statusBarBrightness: Brightness.light,
     ),
   );
 
@@ -35,28 +28,35 @@ void main() async {
     DeviceOrientation.portraitDown,
   ]);
 
-  // Uncomment untuk debugging network (hanya untuk testing)
-  // print('Running network test...');
-  // await ApiTester.runFullTest();
-
-  runApp(const LokinApp());
+  runApp(
+    MultiProvider(
+      providers: [
+        ChangeNotifierProvider(
+          create: (_) => ThemeProvider(),
+        ),
+      ],
+      child: const MyApp(),
+    ),
+  );
 }
 
-Future<void> _initializeServices() async {
-  try {
-    print('Initializing services...');
+class MyApp extends StatelessWidget {
+  const MyApp({super.key});
 
-    // Initialize SharedPreferences
-    await PreferenceService().init();
-    print('SharedPreferences initialized');
-
-    // Initialize Authentication
-    await AuthRepository().initAuth();
-    print('Authentication initialized');
-
-    print('All services initialized successfully');
-  } catch (e) {
-    print('Error initializing services: $e');
-    // Don't throw error, let app continue
+  @override
+  Widget build(BuildContext context) {
+    return Consumer<ThemeProvider>(
+      builder: (context, themeProvider, child) {
+        return MaterialApp(
+          title: 'ABSENSI PPKD',
+          debugShowCheckedModeBanner: false,
+          theme: AppThemeLokin.lightTheme,
+          darkTheme: AppThemeLokin.darkTheme,
+          themeMode:
+              themeProvider.isDarkMode ? ThemeMode.dark : ThemeMode.light,
+          home: const SplashScreen(),
+        );
+      },
+    );
   }
 }
