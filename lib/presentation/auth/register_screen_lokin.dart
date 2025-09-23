@@ -72,7 +72,6 @@ class _RegisterScreenState extends State<RegisterScreen> {
     try {
       print('Loading initial data...');
 
-      // Load trainings first (public endpoint)
       final trainingsResult = await _authRepository.getTrainings();
       print('Trainings result: success=${trainingsResult.isSuccess}');
 
@@ -87,12 +86,19 @@ class _RegisterScreenState extends State<RegisterScreen> {
         print('Failed to load trainings: ${trainingsResult.message}');
       }
 
-      // PERBAIKAN: Load all batches (public endpoint tanpa auth)
-      await _loadAllBatches();
+      final batchesResult = await _authRepository.getBatches();
+      print('Batches result: success=${batchesResult.isSuccess}');
 
-      setState(() {
-        _dataLoaded = true;
-      });
+      if (batchesResult.isSuccess && batchesResult.data != null) {
+        setState(() {
+          _batches = batchesResult.data as List<BatchModel>;
+          _dataLoaded = true;
+        });
+        print('Loaded ${_batches.length} batches');
+      } else {
+        _showErrorSnackBar('Gagal memuat data batch: ${batchesResult.message}');
+        print('Failed to load batches: ${batchesResult.message}');
+      }
     } catch (e) {
       print('Error loading initial data: $e');
       _showErrorSnackBar('Gagal memuat data: $e');
@@ -103,48 +109,6 @@ class _RegisterScreenState extends State<RegisterScreen> {
         });
       }
     }
-  }
-
-  // PERBAIKAN: Method untuk load semua batches (tanpa parameter)
-  Future<void> _loadAllBatches() async {
-    try {
-      print('Loading all batches...');
-
-      // Call getBatches tanpa parameter (public endpoint)
-      final batchesResult = await _authRepository.getBatches();
-      print('Batches result: success=${batchesResult.isSuccess}');
-
-      if (batchesResult.isSuccess && batchesResult.data != null) {
-        setState(() {
-          _batches = batchesResult.data as List<BatchModel>;
-        });
-        print('Loaded ${_batches.length} batches');
-      } else {
-        setState(() {
-          _batches = [];
-        });
-        _showErrorSnackBar('Gagal memuat data batch: ${batchesResult.message}');
-        print('Failed to load batches: ${batchesResult.message}');
-      }
-    } catch (e) {
-      print('Error loading batches: $e');
-      setState(() {
-        _batches = [];
-      });
-      _showErrorSnackBar('Gagal memuat data batch: $e');
-    }
-  }
-
-  // PERBAIKAN: Method untuk filter batches berdasarkan training yang dipilih
-  List<BatchModel> _getFilteredBatches() {
-    if (_selectedTrainingId == null) return [];
-
-    return _batches.where((batch) {
-      // Check if batch has the selected training
-      return batch.trainings
-              ?.any((training) => training.id == _selectedTrainingId) ??
-          false;
-    }).toList();
   }
 
   Future<void> _pickProfileImage() async {
@@ -446,9 +410,6 @@ class _RegisterScreenState extends State<RegisterScreen> {
   }
 
   Widget _buildBatchDropdown() {
-    // PERBAIKAN: Get filtered batches based on selected training
-    final filteredBatches = _getFilteredBatches();
-
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -468,19 +429,15 @@ class _RegisterScreenState extends State<RegisterScreen> {
           child: DropdownButtonFormField<int>(
             value: _selectedBatchId,
             isExpanded: true,
-            decoration: InputDecoration(
-              hintText: _selectedTrainingId == null
-                  ? 'Pilih pelatihan terlebih dahulu'
-                  : filteredBatches.isEmpty
-                      ? 'Tidak ada batch tersedia'
-                      : 'Pilih batch pelatihan',
-              prefixIcon: const Icon(Icons.groups_outlined,
+            decoration: const InputDecoration(
+              hintText: 'Pilih batch pelatihan',
+              prefixIcon: Icon(Icons.groups_outlined,
                   color: AppColorsLokin.textSecondary),
               border: InputBorder.none,
               contentPadding:
-                  const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                  EdgeInsets.symmetric(horizontal: 16, vertical: 12),
             ),
-            items: filteredBatches.map((batch) {
+            items: _batches.map((batch) {
               return DropdownMenuItem<int>(
                 value: batch.id,
                 child: Text(
@@ -489,14 +446,12 @@ class _RegisterScreenState extends State<RegisterScreen> {
                 ),
               );
             }).toList(),
-            onChanged: _selectedTrainingId == null || filteredBatches.isEmpty
-                ? null
-                : (value) {
-                    setState(() {
-                      _selectedBatchId = value;
-                    });
-                    print('Selected batch ID: $value');
-                  },
+            onChanged: (value) {
+              setState(() {
+                _selectedBatchId = value;
+              });
+              print('Selected batch ID: $value');
+            },
             validator: (value) {
               if (value == null) {
                 return 'Batch wajib dipilih';
