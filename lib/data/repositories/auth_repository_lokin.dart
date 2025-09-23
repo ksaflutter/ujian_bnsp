@@ -12,7 +12,7 @@ class AuthRepository {
   factory AuthRepository() => _instance;
   AuthRepository._internal();
 
-  /// Register new user
+  /// PERBAIKAN: Register new user dengan profilePhoto parameter
   Future<AuthResult> register({
     required String name,
     required String email,
@@ -20,6 +20,7 @@ class AuthRepository {
     required int trainingId,
     required int batchId,
     required String gender,
+    String? profilePhoto, // TAMBAHAN: Parameter profilePhoto
   }) async {
     try {
       print('=== AUTH REPOSITORY REGISTER ===');
@@ -30,6 +31,8 @@ class AuthRepository {
         trainingId: trainingId,
         batchId: batchId,
         gender: gender,
+        profilePhoto:
+            profilePhoto, // TAMBAHAN: Pass profilePhoto ke API service
       );
 
       if (response['data'] != null) {
@@ -227,9 +230,12 @@ class AuthRepository {
     }
   }
 
-  /// Update profile photo
+  /// Update profile photo - TETAP SAMA SEPERTI YANG SUDAH BEKERJA
   Future<AuthResult> updateProfilePhoto(String imagePath) async {
     try {
+      print('=== AUTH REPOSITORY: updateProfilePhoto ===');
+      print('Image path: $imagePath');
+
       final file = File(imagePath);
       if (!await file.exists()) {
         return AuthResult.failure(message: 'File gambar tidak ditemukan');
@@ -241,26 +247,38 @@ class AuthRepository {
             message: 'Ukuran file terlalu besar (maksimal 5MB)');
       }
 
+      print('Calling API service updateProfilePhoto...');
       final response = await _apiService.updateProfilePhoto(
         file,
         photoPath: imagePath,
       );
 
-      if (response['data'] != null) {
-        // simpan user baru ke local storage
-        final user = UserModelLokin.fromJson(response['data']);
-        await _preferenceService.saveUser(user);
+      print('API response received: $response');
+
+      // Check if response has success message
+      final message = response['message'] ?? '';
+      if (message.toLowerCase().contains('berhasil') ||
+          message.toLowerCase().contains('success') ||
+          response.containsKey('data')) {
+        // Success - refresh profile to get updated photo URL
+        try {
+          await getProfile();
+        } catch (e) {
+          print('Error refreshing profile: $e');
+        }
 
         return AuthResult.success(
-          message: response['message'] ?? 'Foto profil berhasil diperbarui',
-          user: user,
+          message:
+              message.isNotEmpty ? message : 'Foto profil berhasil diperbarui',
+          data: response['data'],
         );
       } else {
         return AuthResult.failure(
-          message: response['message'] ?? 'Gagal update foto',
+          message: message.isNotEmpty ? message : 'Gagal update foto',
         );
       }
     } catch (e) {
+      print('Error in updateProfilePhoto: $e');
       return AuthResult.failure(message: _getErrorMessage(e));
     }
   }
@@ -295,10 +313,10 @@ class AuthRepository {
     }
   }
 
-  /// Get list of batches
-  Future<AuthResult> getBatches(int trainingId) async {
+  /// PERBAIKAN: Get list of batches tanpa parameter (public endpoint)
+  Future<AuthResult> getBatches() async {
     try {
-      final response = await _apiService.getBatches(trainingId);
+      final response = await _apiService.getBatchesPublic();
       return AuthResult.success(
         message: response.message,
         data: response.data,

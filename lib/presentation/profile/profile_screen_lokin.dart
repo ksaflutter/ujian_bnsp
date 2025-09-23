@@ -210,13 +210,110 @@ class _ProfileScreenState extends State<ProfileScreen>
     await _loadUserData();
   }
 
+  // Perbaikan untuk pick dan upload profile image
   Future<void> _pickProfileImage() async {
+    try {
+      // Show dialog untuk pilih sumber foto
+      await _showImageSourceDialog();
+    } catch (e) {
+      _showErrorSnackBar('Gagal memilih foto: $e');
+    }
+  }
+
+  Future<void> _showImageSourceDialog() async {
+    showModalBottomSheet(
+      context: context,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
+      ),
+      builder: (context) => SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.all(20),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Text(
+                'Pilih Foto Profil',
+                style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                      fontWeight: FontWeight.bold,
+                    ),
+              ),
+              const SizedBox(height: 20),
+              Row(
+                children: [
+                  Expanded(
+                    child: _buildImageSourceOption(
+                      icon: Icons.photo_library,
+                      title: 'Galeri',
+                      onTap: () {
+                        Navigator.pop(context);
+                        _pickImageFromGallery();
+                      },
+                    ),
+                  ),
+                  const SizedBox(width: 16),
+                  Expanded(
+                    child: _buildImageSourceOption(
+                      icon: Icons.camera_alt,
+                      title: 'Kamera',
+                      onTap: () {
+                        Navigator.pop(context);
+                        _pickImageFromCamera();
+                      },
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 10),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildImageSourceOption({
+    required IconData icon,
+    required String title,
+    required VoidCallback onTap,
+  }) {
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(12),
+      child: Container(
+        padding: const EdgeInsets.symmetric(vertical: 16),
+        decoration: BoxDecoration(
+          border: Border.all(color: AppColorsLokin.primary.withOpacity(0.3)),
+          borderRadius: BorderRadius.circular(12),
+        ),
+        child: Column(
+          children: [
+            Icon(
+              icon,
+              size: 32,
+              color: AppColorsLokin.primary,
+            ),
+            const SizedBox(height: 8),
+            Text(
+              title,
+              style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                    fontWeight: FontWeight.w500,
+                    color: AppColorsLokin.primary,
+                  ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Future<void> _pickImageFromGallery() async {
     try {
       final pickedFile = await _imagePicker.pickImage(
         source: ImageSource.gallery,
-        maxWidth: 500,
-        maxHeight: 500,
-        imageQuality: 80,
+        maxWidth: 800,
+        maxHeight: 800,
+        imageQuality: 85,
       );
 
       if (pickedFile != null) {
@@ -226,7 +323,27 @@ class _ProfileScreenState extends State<ProfileScreen>
         await _uploadProfileImage();
       }
     } catch (e) {
-      _showErrorSnackBar('Gagal memilih foto: $e');
+      _showErrorSnackBar('Gagal memilih foto dari galeri: $e');
+    }
+  }
+
+  Future<void> _pickImageFromCamera() async {
+    try {
+      final pickedFile = await _imagePicker.pickImage(
+        source: ImageSource.camera,
+        maxWidth: 800,
+        maxHeight: 800,
+        imageQuality: 85,
+      );
+
+      if (pickedFile != null) {
+        setState(() {
+          _selectedProfileImage = File(pickedFile.path);
+        });
+        await _uploadProfileImage();
+      }
+    } catch (e) {
+      _showErrorSnackBar('Gagal mengambil foto dari kamera: $e');
     }
   }
 
@@ -238,16 +355,47 @@ class _ProfileScreenState extends State<ProfileScreen>
     });
 
     try {
+      // Validate file
+      if (!await _selectedProfileImage!.exists()) {
+        _showErrorSnackBar('File gambar tidak ditemukan');
+        return;
+      }
+
+      // Check file size (max 5MB)
+      final fileSize = await _selectedProfileImage!.length();
+      if (fileSize > 5 * 1024 * 1024) {
+        _showErrorSnackBar('Ukuran file terlalu besar (maksimal 5MB)');
+        return;
+      }
+
+      // Check file extension
+      final extension =
+          _selectedProfileImage!.path.split('.').last.toLowerCase();
+      if (!['jpg', 'jpeg', 'png'].contains(extension)) {
+        _showErrorSnackBar(
+            'Format file tidak didukung. Gunakan JPG, JPEG, atau PNG');
+        return;
+      }
+
+      print('Uploading profile photo: ${_selectedProfileImage!.path}');
+      print('File size: ${fileSize / 1024} KB');
+      print('File extension: $extension');
+
       final result =
           await _authRepository.updateProfilePhoto(_selectedProfileImage!.path);
+
       if (result.isSuccess) {
         _showSuccessSnackBar('Foto profil berhasil diperbarui');
-        await _loadUserData(); // refresh dari server + save lokal
+        await _loadUserData(); // refresh data dari server
       } else {
         _showErrorSnackBar(result.message ?? 'Gagal memperbarui foto profil');
-        setState(() => _selectedProfileImage = profile_photo);
+        // Reset selected image jika gagal
+        setState(() {
+          _selectedProfileImage = null;
+        });
       }
     } catch (e) {
+      print('Error uploading profile photo: $e');
       _showErrorSnackBar('Gagal memperbarui foto: $e');
       setState(() {
         _selectedProfileImage = null;
@@ -486,7 +634,7 @@ class _ProfileScreenState extends State<ProfileScreen>
     }();
 
     return GestureDetector(
-      onTap: _pickProfileImage,
+      onTap: _isLoading ? null : _pickProfileImage,
       child: Stack(
         children: [
           Container(
@@ -502,6 +650,21 @@ class _ProfileScreenState extends State<ProfileScreen>
             ),
             child: ClipOval(child: imageWidget),
           ),
+          if (_isLoading)
+            Positioned.fill(
+              child: Container(
+                decoration: BoxDecoration(
+                  shape: BoxShape.circle,
+                  color: Colors.black.withOpacity(0.5),
+                ),
+                child: const Center(
+                  child: CircularProgressIndicator(
+                    color: Colors.white,
+                    strokeWidth: 2,
+                  ),
+                ),
+              ),
+            ),
           Positioned(
             bottom: 0,
             right: 0,
@@ -522,6 +685,62 @@ class _ProfileScreenState extends State<ProfileScreen>
         ],
       ),
     );
+  }
+
+  // Helper method untuk format batch display dengan multiple fallback
+  String _getBatchDisplayText() {
+    // Debug print untuk melihat data batch
+    print('Current user batches: ${_currentUser?.batches}');
+
+    if (_currentUser?.batches == null || _currentUser!.batches.isEmpty) {
+      // Coba cek apakah ada di tempat lain
+      if (_currentUser != null) {
+        print('Full user object: ${_currentUser.toString()}');
+      }
+      return '-';
+    }
+
+    try {
+      // Jika hanya ada satu batch, tampilkan nama batch tersebut
+      if (_currentUser!.batches.length == 1) {
+        final batchName = _currentUser!.batches.first.batchKe;
+        print('Single batch name: $batchName');
+        return batchName.isNotEmpty
+            ? batchName
+            : 'Batch ${_currentUser!.batches.first.id}';
+      }
+
+      // Jika ada beberapa batch, tampilkan sebagai list yang dipisah koma
+      final batchNames = _currentUser!.batches
+          .map((batch) =>
+              batch.batchKe.isNotEmpty ? batch.batchKe : 'Batch ${batch.id}')
+          .join(', ');
+      print('Multiple batch names: $batchNames');
+      return batchNames;
+    } catch (e) {
+      print('Error formatting batch display: $e');
+      return 'Batch ${_currentUser!.batches.first.id}';
+    }
+  }
+
+  // Helper method untuk training display
+  String _getTrainingDisplayText() {
+    print('Current user training: ${_currentUser?.training}');
+
+    if (_currentUser?.training == null) {
+      return '-';
+    }
+
+    try {
+      final title = _currentUser!.training!.title;
+      print('Training title: $title');
+      return title.isNotEmpty
+          ? title
+          : 'Training ${_currentUser!.training!.id}';
+    } catch (e) {
+      print('Error formatting training display: $e');
+      return 'Training ${_currentUser!.training!.id}';
+    }
   }
 
   Widget _buildPersonalInfo() {
@@ -596,6 +815,18 @@ class _ProfileScreenState extends State<ProfileScreen>
               icon: Icons.email,
               title: 'Email',
               value: _currentUser?.email ?? '-',
+            ),
+            const SizedBox(height: 12),
+            _buildInfoItem(
+              icon: Icons.badge,
+              title: 'Training',
+              value: _getTrainingDisplayText(),
+            ),
+            const SizedBox(height: 12),
+            _buildInfoItem(
+              icon: Icons.group,
+              title: 'Batch',
+              value: _getBatchDisplayText(),
             ),
           ],
         ],

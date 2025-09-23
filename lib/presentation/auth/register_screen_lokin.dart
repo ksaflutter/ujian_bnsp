@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'dart:io';
 
 import 'package:flutter/material.dart';
@@ -39,11 +40,12 @@ class _RegisterScreenState extends State<RegisterScreen> {
   List<BatchModel> _batches = [];
   int? _selectedTrainingId;
   int? _selectedBatchId;
-  String _selectedGender = 'L'; // FIXED: Use API format directly
+  String _selectedGender = 'L'; // Use API format directly
   File? _selectedProfileImage;
 
   bool _isLoadingData = false;
   bool _dataLoaded = false;
+  bool _isLoadingBatches = false;
 
   @override
   void initState() {
@@ -70,6 +72,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
     try {
       print('Loading initial data...');
 
+      // Load trainings first (public endpoint)
       final trainingsResult = await _authRepository.getTrainings();
       print('Trainings result: success=${trainingsResult.isSuccess}');
 
@@ -84,20 +87,12 @@ class _RegisterScreenState extends State<RegisterScreen> {
         print('Failed to load trainings: ${trainingsResult.message}');
       }
 
-      final batchesResult =
-          await _authRepository.getBatches(_selectedTrainingId!);
-      print('Batches result: success=${batchesResult.isSuccess}');
+      // PERBAIKAN: Load all batches (public endpoint tanpa auth)
+      await _loadAllBatches();
 
-      if (batchesResult.isSuccess && batchesResult.data != null) {
-        setState(() {
-          _batches = batchesResult.data as List<BatchModel>;
-          _dataLoaded = true;
-        });
-        print('Loaded ${_batches.length} batches');
-      } else {
-        _showErrorSnackBar('Gagal memuat data batch: ${batchesResult.message}');
-        print('Failed to load batches: ${batchesResult.message}');
-      }
+      setState(() {
+        _dataLoaded = true;
+      });
     } catch (e) {
       print('Error loading initial data: $e');
       _showErrorSnackBar('Gagal memuat data: $e');
@@ -108,6 +103,48 @@ class _RegisterScreenState extends State<RegisterScreen> {
         });
       }
     }
+  }
+
+  // PERBAIKAN: Method untuk load semua batches (tanpa parameter)
+  Future<void> _loadAllBatches() async {
+    try {
+      print('Loading all batches...');
+
+      // Call getBatches tanpa parameter (public endpoint)
+      final batchesResult = await _authRepository.getBatches();
+      print('Batches result: success=${batchesResult.isSuccess}');
+
+      if (batchesResult.isSuccess && batchesResult.data != null) {
+        setState(() {
+          _batches = batchesResult.data as List<BatchModel>;
+        });
+        print('Loaded ${_batches.length} batches');
+      } else {
+        setState(() {
+          _batches = [];
+        });
+        _showErrorSnackBar('Gagal memuat data batch: ${batchesResult.message}');
+        print('Failed to load batches: ${batchesResult.message}');
+      }
+    } catch (e) {
+      print('Error loading batches: $e');
+      setState(() {
+        _batches = [];
+      });
+      _showErrorSnackBar('Gagal memuat data batch: $e');
+    }
+  }
+
+  // PERBAIKAN: Method untuk filter batches berdasarkan training yang dipilih
+  List<BatchModel> _getFilteredBatches() {
+    if (_selectedTrainingId == null) return [];
+
+    return _batches.where((batch) {
+      // Check if batch has the selected training
+      return batch.trainings
+              ?.any((training) => training.id == _selectedTrainingId) ??
+          false;
+    }).toList();
   }
 
   Future<void> _pickProfileImage() async {
@@ -126,6 +163,18 @@ class _RegisterScreenState extends State<RegisterScreen> {
       }
     } catch (e) {
       _showErrorSnackBar('Gagal memilih foto: $e');
+    }
+  }
+
+  // PERBAIKAN: Method untuk convert image ke base64
+  Future<String?> _convertImageToBase64(File imageFile) async {
+    try {
+      final bytes = await imageFile.readAsBytes();
+      final base64String = base64Encode(bytes);
+      return 'data:image/png;base64,$base64String';
+    } catch (e) {
+      print('Error converting image to base64: $e');
+      return null;
     }
   }
 
@@ -165,7 +214,14 @@ class _RegisterScreenState extends State<RegisterScreen> {
       print('Email: ${_emailController.text.trim()}');
       print('Training ID: $_selectedTrainingId');
       print('Batch ID: $_selectedBatchId');
-      print('Gender: $_selectedGender'); // This should be L or P
+      print('Gender: $_selectedGender');
+
+      // PERBAIKAN: Convert image to base64 if selected
+      String? profilePhotoBase64;
+      if (_selectedProfileImage != null) {
+        profilePhotoBase64 =
+            await _convertImageToBase64(_selectedProfileImage!);
+      }
 
       final result = await _authRepository.register(
         name: _nameController.text.trim(),
@@ -173,7 +229,8 @@ class _RegisterScreenState extends State<RegisterScreen> {
         password: _passwordController.text,
         trainingId: _selectedTrainingId!,
         batchId: _selectedBatchId!,
-        gender: _selectedGender, // FIXED: Add gender parameter
+        gender: _selectedGender,
+        profilePhoto: profilePhotoBase64, // PERBAIKAN: Tambah profile photo
       );
 
       print('Registration result: success=${result.isSuccess}');
@@ -371,7 +428,9 @@ class _RegisterScreenState extends State<RegisterScreen> {
             onChanged: (value) {
               setState(() {
                 _selectedTrainingId = value;
+                _selectedBatchId = null; // Reset batch selection
               });
+
               print('Selected training ID: $value');
             },
             validator: (value) {
@@ -387,6 +446,9 @@ class _RegisterScreenState extends State<RegisterScreen> {
   }
 
   Widget _buildBatchDropdown() {
+    // PERBAIKAN: Get filtered batches based on selected training
+    final filteredBatches = _getFilteredBatches();
+
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -406,15 +468,19 @@ class _RegisterScreenState extends State<RegisterScreen> {
           child: DropdownButtonFormField<int>(
             value: _selectedBatchId,
             isExpanded: true,
-            decoration: const InputDecoration(
-              hintText: 'Pilih batch pelatihan',
-              prefixIcon: Icon(Icons.groups_outlined,
+            decoration: InputDecoration(
+              hintText: _selectedTrainingId == null
+                  ? 'Pilih pelatihan terlebih dahulu'
+                  : filteredBatches.isEmpty
+                      ? 'Tidak ada batch tersedia'
+                      : 'Pilih batch pelatihan',
+              prefixIcon: const Icon(Icons.groups_outlined,
                   color: AppColorsLokin.textSecondary),
               border: InputBorder.none,
               contentPadding:
-                  EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                  const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
             ),
-            items: _batches.map((batch) {
+            items: filteredBatches.map((batch) {
               return DropdownMenuItem<int>(
                 value: batch.id,
                 child: Text(
@@ -423,12 +489,14 @@ class _RegisterScreenState extends State<RegisterScreen> {
                 ),
               );
             }).toList(),
-            onChanged: (value) {
-              setState(() {
-                _selectedBatchId = value;
-              });
-              print('Selected batch ID: $value');
-            },
+            onChanged: _selectedTrainingId == null || filteredBatches.isEmpty
+                ? null
+                : (value) {
+                    setState(() {
+                      _selectedBatchId = value;
+                    });
+                    print('Selected batch ID: $value');
+                  },
             validator: (value) {
               if (value == null) {
                 return 'Batch wajib dipilih';
@@ -458,7 +526,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
             Expanded(
               child: RadioListTile<String>(
                 title: const Text('Laki-laki'),
-                value: 'L', // FIXED: Use API format
+                value: 'L',
                 groupValue: _selectedGender,
                 onChanged: (value) {
                   setState(() {
@@ -473,7 +541,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
             Expanded(
               child: RadioListTile<String>(
                 title: const Text('Perempuan'),
-                value: 'P', // FIXED: Use API format
+                value: 'P',
                 groupValue: _selectedGender,
                 onChanged: (value) {
                   setState(() {

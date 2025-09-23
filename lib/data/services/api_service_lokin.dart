@@ -3,6 +3,8 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:http/http.dart' as http;
+import 'package:lokinid_app/data/models/batch_model_lokin.dart';
+import 'package:lokinid_app/data/models/training_model_lokin.dart';
 
 import '../../core/constants/api_constants_lokin.dart';
 import '../../core/utils/date_helper_lokin.dart';
@@ -18,7 +20,7 @@ class ApiService {
   String? _token;
   static const Duration _defaultTimeout = Duration(seconds: 30);
 
-  // Headers
+  /// Headers
   Map<String, String> get _headers {
     Map<String, String> headers = {
       'Accept': 'application/json',
@@ -49,7 +51,7 @@ class ApiService {
 
   // AUTHENTICATION ENDPOINTS
 
-  /// Register new user
+  /// PERBAIKAN: Register new user dengan profilePhoto parameter
   Future<Map<String, dynamic>> register({
     required String name,
     required String email,
@@ -57,6 +59,7 @@ class ApiService {
     required int trainingId,
     required int batchId,
     required String gender,
+    String? profilePhoto, // TAMBAHAN: Parameter profilePhoto
   }) async {
     return await _executeRequest(
       () => http.post(
@@ -68,7 +71,10 @@ class ApiService {
           'password': password,
           'training_id': trainingId,
           'batch_id': batchId,
-          'gender': gender,
+          'jenis_kelamin':
+              gender, // PERBAIKAN: Gunakan jenis_kelamin sesuai API
+          if (profilePhoto != null)
+            'profile_photo': profilePhoto, // TAMBAHAN: profile_photo jika ada
         }),
       ),
       (data) => data,
@@ -136,11 +142,22 @@ class ApiService {
     );
   }
 
-  /// Get batches
+  /// Get batches by training ID - YANG LAMA (masih dipertahankan untuk compatibility)
   Future<BatchResponseLokin> getBatches(int trainingId) async {
     return await _executeRequest(
       () => http.get(
         Uri.parse('${ApiConstantsLokin.baseUrl}/batches/$trainingId'),
+        headers: _headers,
+      ),
+      (data) => BatchResponseLokin.fromJson(data),
+    );
+  }
+
+  /// PERBAIKAN: Get all batches tanpa parameter (public endpoint)
+  Future<BatchResponseLokin> getBatchesPublic() async {
+    return await _executeRequest(
+      () => http.get(
+        Uri.parse('${ApiConstantsLokin.baseUrl}/batches'),
         headers: _headers,
       ),
       (data) => BatchResponseLokin.fromJson(data),
@@ -241,7 +258,7 @@ class ApiService {
     );
   }
 
-  /// Submit permission/izin - PERBAIKAN: Mencoba multiple field combinations
+  /// Submit permission/izin - TETAP SAMA SEPERTI YANG SUDAH BEKERJA
   Future<Map<String, dynamic>> submitPermission({
     required String date,
     required String reason,
@@ -429,42 +446,64 @@ class ApiService {
     );
   }
 
-  /// Update profile photo
+  // TETAP SAMA - Update profile photo yang sudah bekerja
   Future<Map<String, dynamic>> updateProfilePhoto(
     File file, {
     required String photoPath,
   }) async {
     try {
-      var request = http.MultipartRequest(
-        'PUT',
-        Uri.parse('${ApiConstantsLokin.baseUrl}/profile/photo'),
-      );
+      print('=== UPDATE PROFILE PHOTO (Base64 Approach) ===');
+      print('File path: $photoPath');
 
-      // Add headers (without Content-Type as it's set automatically for multipart)
-      Map<String, String> requestHeaders = {
-        'Accept': 'application/json',
-      };
-      if (_token != null) {
-        requestHeaders['Authorization'] = 'Bearer $_token';
+      // Baca file sebagai bytes
+      final bytes = await file.readAsBytes();
+      print('File size: ${bytes.length} bytes');
+
+      // Convert ke base64
+      final base64String = base64Encode(bytes);
+      print('Base64 length: ${base64String.length}');
+
+      // Tentukan mime type
+      String mimeType = 'image/jpeg';
+      final extension = photoPath.toLowerCase().split('.').last;
+      if (extension == 'png') {
+        mimeType = 'image/png';
+      } else if (extension == 'gif') {
+        mimeType = 'image/gif';
       }
-      request.headers.addAll(requestHeaders);
 
-      // Add file
-      request.files.add(
-        await http.MultipartFile.fromPath('profile_photo', photoPath),
+      // Format data URL
+      final dataUrl = 'data:$mimeType;base64,$base64String';
+      print('Data URL prefix: data:$mimeType;base64,...');
+
+      // Kirim sebagai JSON POST request
+      return await _executeRequest(
+        () => http.put(
+          Uri.parse('${ApiConstantsLokin.baseUrl}/profile/photo'),
+          headers: _headers,
+          body: jsonEncode({
+            'profile_photo': dataUrl,
+          }),
+        ),
+        (data) => data,
       );
-
-      final streamedResponse = await request.send().timeout(_defaultTimeout);
-      final response = await http.Response.fromStream(streamedResponse);
-
-      return _handleResponse(response);
-    } on SocketException {
-      throw Exception('Tidak ada koneksi internet. Periksa koneksi Anda.');
-    } on TimeoutException {
-      throw Exception('Koneksi timeout. Coba lagi nanti.');
     } catch (e) {
+      print('Error in updateProfilePhoto: $e');
       throw Exception('Gagal upload foto: $e');
     }
+  }
+
+  Future<Map<String, dynamic>> saveDeviceTokenV2(String deviceToken) async {
+    return await _executeRequest(
+      () => http.post(
+        Uri.parse('${ApiConstantsLokin.baseUrl}/device-token'),
+        headers: _headers,
+        body: jsonEncode({
+          'player_id': deviceToken,
+        }),
+      ),
+      (data) => data,
+    );
   }
 
   // HELPER METHODS
@@ -617,7 +656,7 @@ class StatsResponse {
 
 class TrainingResponseLokin {
   final String message;
-  final List<TrainingModelLokin>? data;
+  final List<TrainingModel>? data;
 
   TrainingResponseLokin({required this.message, this.data});
 
@@ -626,7 +665,7 @@ class TrainingResponseLokin {
       message: json['message'] ?? '',
       data: json['data'] != null
           ? (json['data'] as List)
-              .map((item) => TrainingModelLokin.fromJson(item))
+              .map((item) => TrainingModel.fromJson(item))
               .toList()
           : null,
     );
@@ -635,7 +674,7 @@ class TrainingResponseLokin {
 
 class BatchResponseLokin {
   final String message;
-  final List<BatchModelLokin>? data;
+  final List<BatchModel>? data;
 
   BatchResponseLokin({required this.message, this.data});
 
@@ -644,7 +683,7 @@ class BatchResponseLokin {
       message: json['message'] ?? '',
       data: json['data'] != null
           ? (json['data'] as List)
-              .map((item) => BatchModelLokin.fromJson(item))
+              .map((item) => BatchModel.fromJson(item))
               .toList()
           : null,
     );

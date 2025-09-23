@@ -6,6 +6,8 @@ class UserModelLokin {
   final String? profilePhoto;
   final String createdAt;
   final String updatedAt;
+  final TrainingModelLokin? training;
+  final List<BatchModelLokin> batches;
 
   UserModelLokin({
     required this.id,
@@ -15,9 +17,64 @@ class UserModelLokin {
     this.profilePhoto,
     required this.createdAt,
     required this.updatedAt,
+    this.training,
+    this.batches = const [],
   });
 
   factory UserModelLokin.fromJson(Map<String, dynamic> json) {
+    // Debug print untuk melihat struktur JSON
+    print('UserModel JSON: $json');
+
+    // Parse training dengan multiple fallback
+    TrainingModelLokin? training;
+    try {
+      if (json['training'] != null) {
+        training = TrainingModelLokin.fromJson(json['training']);
+      } else if (json['trainings'] != null &&
+          json['trainings'] is List &&
+          (json['trainings'] as List).isNotEmpty) {
+        // Fallback jika data training ada di field 'trainings' dan ambil yang pertama
+        training =
+            TrainingModelLokin.fromJson((json['trainings'] as List).first);
+      }
+    } catch (e) {
+      print('Error parsing training: $e');
+      training = null;
+    }
+
+    // Parse batches dengan multiple fallback
+    List<BatchModelLokin> batches = [];
+    try {
+      if (json['batches'] != null && json['batches'] is List) {
+        batches = (json['batches'] as List)
+            .map((batch) => BatchModelLokin.fromJson(batch))
+            .toList();
+      } else if (json['batch'] != null) {
+        // Fallback jika data batch ada di field 'batch' (singular)
+        if (json['batch'] is List) {
+          batches = (json['batch'] as List)
+              .map((batch) => BatchModelLokin.fromJson(batch))
+              .toList();
+        } else {
+          // Jika batch adalah object tunggal
+          batches = [BatchModelLokin.fromJson(json['batch'])];
+        }
+      } else if (json['user_batches'] != null && json['user_batches'] is List) {
+        // Fallback lain jika ada di field 'user_batches'
+        batches = (json['user_batches'] as List)
+            .map((batch) => BatchModelLokin.fromJson(batch))
+            .toList();
+      }
+    } catch (e) {
+      print('Error parsing batches: $e');
+      batches = [];
+    }
+
+    print('Parsed batches count: ${batches.length}');
+    if (batches.isNotEmpty) {
+      print('First batch: ${batches.first.batchKe}');
+    }
+
     return UserModelLokin(
       id: json['id'] ?? 0,
       name: json['name'] ?? '',
@@ -26,6 +83,8 @@ class UserModelLokin {
       profilePhoto: json['profile_photo'],
       createdAt: json['created_at'] ?? '',
       updatedAt: json['updated_at'] ?? '',
+      training: training,
+      batches: batches,
     );
   }
 
@@ -38,6 +97,8 @@ class UserModelLokin {
       'profile_photo': profilePhoto,
       'created_at': createdAt,
       'updated_at': updatedAt,
+      'training': training?.toJson(),
+      'batches': batches.map((batch) => batch.toJson()).toList(),
     };
   }
 
@@ -49,6 +110,8 @@ class UserModelLokin {
     String? profilePhoto,
     String? createdAt,
     String? updatedAt,
+    TrainingModelLokin? training,
+    List<BatchModelLokin>? batches,
   }) {
     return UserModelLokin(
       id: id ?? this.id,
@@ -58,12 +121,14 @@ class UserModelLokin {
       profilePhoto: profilePhoto ?? this.profilePhoto,
       createdAt: createdAt ?? this.createdAt,
       updatedAt: updatedAt ?? this.updatedAt,
+      training: training ?? this.training,
+      batches: batches ?? this.batches,
     );
   }
 
   @override
   String toString() {
-    return 'UserModelLokin(id: $id, name: $name, email: $email)';
+    return 'UserModelLokin(id: $id, name: $name, email: $email, training: $training, batches: $batches)';
   }
 
   @override
@@ -75,11 +140,7 @@ class UserModelLokin {
   @override
   int get hashCode => id.hashCode;
 
-  get training => null;
-
-  get trainings => null;
-
-  get batches => null;
+  static fromUserDataLokin(UserDataLokin userData) {}
 }
 
 // User data with token for authentication
@@ -96,17 +157,14 @@ class UserDataLokin {
     );
   }
 
-  get id => null;
-
-  get name => null;
-
-  get email => null;
-
-  get emailVerifiedAt => null;
-
-  get createdAt => null;
-
-  get updatedAt => null;
+  get id => user.id;
+  get name => user.name;
+  get email => user.email;
+  get emailVerifiedAt => user.emailVerifiedAt;
+  get createdAt => user.createdAt;
+  get updatedAt => user.updatedAt;
+  get training => user.training;
+  get batches => user.batches;
 
   Map<String, dynamic> toJson() {
     return {'token': token, 'user': user.toJson()};
@@ -214,9 +272,15 @@ class BatchModelLokin {
   });
 
   factory BatchModelLokin.fromJson(Map<String, dynamic> json) {
+    // Debug print untuk batch parsing
+    print('Batch JSON: $json');
+
     return BatchModelLokin(
       id: json['id'] ?? 0,
-      batchKe: json['batch_ke'] ?? '',
+      batchKe: json['batch_ke'] ??
+          json['name'] ??
+          json['batch_name'] ??
+          'Batch ${json['id'] ?? ''}',
       startDate: json['start_date'] ?? '',
       endDate: json['end_date'] ?? '',
       createdAt: json['created_at'],
