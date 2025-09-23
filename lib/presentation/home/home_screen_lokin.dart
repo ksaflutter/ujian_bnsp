@@ -344,6 +344,7 @@ class _HomeScreenState extends State<HomeScreen>
   }
 
   Widget _buildHeader() {
+    final now = DateTime.now();
     return Container(
       width: double.infinity,
       decoration: const BoxDecoration(
@@ -369,7 +370,7 @@ class _HomeScreenState extends State<HomeScreen>
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Text(
-                        'Selamat pagi',
+                        DateHelperLokin.getGreeting(),
                         style: Theme.of(context).textTheme.bodyLarge?.copyWith(
                               color: Colors.white.withOpacity(0.9),
                             ),
