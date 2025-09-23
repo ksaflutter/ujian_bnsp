@@ -192,7 +192,7 @@ class _SplashScreenState extends State<SplashScreen>
   Widget _buildLogoWithFallback() {
     // List of possible paths untuk logo
     final List<String> logoPaths = [
-      'assets/images/logo.png',
+      'assets/images/logo_1.png',
       'assets/images/LokinID_logo__1_.png',
       'assets/icons/lokinid_logo.png',
       'assets/icons/LokinID_logo__1_.png',
