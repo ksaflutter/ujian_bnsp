@@ -1,4 +1,4 @@
-package com.example.lokinid_app
+package com.ppkd.lokinid_app
 
 import io.flutter.embedding.android.FlutterActivity
 
